@@ -1,0 +1,6 @@
+{
+  "name": "Gascons",
+  "description": "Application de gestion complète de consommation de gasoil, suivi de stock, livraisons fournisseurs, distributions par véhicule et catégorie avec signature et tableaux de bord.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

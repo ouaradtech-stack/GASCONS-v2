@@ -1,0 +1,194 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'ouaradtech@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN')
+      );
+    }
+
+    // --- Entity Validation Helpers ---
+
+    function isValidCompanyProfile(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.isConfigured is bool &&
+             (!('legalStatus' in data) || (data.legalStatus is string && data.legalStatus.size() <= 50)) &&
+             (!('taxId' in data) || (data.taxId is string && data.taxId.size() <= 100)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 50)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 100)) &&
+             (!('currency' in data) || (data.currency is string && data.currency.size() <= 20));
+    }
+
+    function isValidStockConfig(data) {
+      return data.initialStock is number && data.initialStock >= 0 &&
+             data.tankCapacity is number && data.tankCapacity > 0 &&
+             data.tankName is string && data.tankName.size() > 0 && data.tankName.size() <= 100 &&
+             (!('alertThreshold' in data) || (data.alertThreshold is number && data.alertThreshold >= 0)) &&
+             (!('criticalThreshold' in data) || (data.criticalThreshold is number && data.criticalThreshold >= 0)) &&
+             (!('location' in data) || (data.location is string && data.location.size() <= 150));
+    }
+
+    function isValidStockAdjustment(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.date is string && data.date.size() <= 30 &&
+             data.newStock is number && data.newStock >= 0 &&
+             data.reason is string && data.reason.size() > 0 && data.reason.size() <= 250 &&
+             data.adjustedBy is string && data.adjustedBy.size() > 0 && data.adjustedBy.size() <= 100;
+    }
+
+    function isValidCategory(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.unitType in ['KM', 'HEURES'] &&
+             data.defaultTargetRate is number && data.defaultTargetRate >= 0;
+    }
+
+    function isValidVehicle(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.code is string && data.code.size() > 0 && data.code.size() <= 50 &&
+             data.plateNumber is string && data.plateNumber.size() > 0 && data.plateNumber.size() <= 50 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 150 &&
+             data.categoryId is string && isValidId(data.categoryId) &&
+             data.departmentId is string && isValidId(data.departmentId) &&
+             data.unitType in ['KM', 'HEURES'] &&
+             data.currentReading is number && data.currentReading >= 0 &&
+             data.tankCapacity is number && data.tankCapacity > 0 &&
+             data.status in ['ACTIF', 'EN_MAINTENANCE', 'HORS_SERVICE'];
+    }
+
+    function isValidDepartment(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.code is string && data.code.size() > 0 && data.code.size() <= 50;
+    }
+
+    function isValidSupplier(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 150;
+    }
+
+    function isValidUser(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.email is string && data.email.size() > 0 && data.email.size() <= 100 &&
+             data.role in ['ADMIN', 'GESTIONNAIRE', 'SUPERVISEUR', 'POMPISTE'];
+    }
+
+    function isValidFuelExit(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.ticketNumber is string && data.ticketNumber.size() > 0 && data.ticketNumber.size() <= 50 &&
+             data.date is string && data.date.size() <= 30 &&
+             data.vehicleId is string && isValidId(data.vehicleId) &&
+             data.quantityLiters is number && data.quantityLiters > 0 &&
+             data.currentReading is number && data.currentReading >= 0 &&
+             data.requesterName is string && data.requesterName.size() > 0 && data.requesterName.size() <= 100 &&
+             data.pumpOperatorName is string && data.pumpOperatorName.size() > 0 && data.pumpOperatorName.size() <= 100;
+    }
+
+    function isValidFuelDelivery(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.deliveryNumber is string && data.deliveryNumber.size() > 0 && data.deliveryNumber.size() <= 50 &&
+             data.date is string && data.date.size() <= 30 &&
+             data.supplierId is string && isValidId(data.supplierId) &&
+             data.quantityLiters is number && data.quantityLiters > 0 &&
+             data.receiverName is string && data.receiverName.size() > 0 && data.receiverName.size() <= 100;
+    }
+
+    // --- Admin Collection ---
+    match /admins/{adminId} {
+      allow get: if request.auth.uid == adminId || isAdmin();
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // --- Settings: Company & Stock Configuration ---
+    match /settings/{settingId} {
+      allow get, list: if true;
+      allow create, update: if (settingId == 'company' && isValidCompanyProfile(incoming())) ||
+                               (settingId == 'stockConfig' && isValidStockConfig(incoming()));
+      allow delete: if isAdmin();
+    }
+
+    // --- Stock Adjustments ---
+    match /stockAdjustments/{adjustmentId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(adjustmentId) && isValidStockAdjustment(incoming());
+      allow delete: if isValidId(adjustmentId);
+    }
+
+    // --- Categories ---
+    match /categories/{categoryId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(categoryId) && isValidCategory(incoming());
+      allow delete: if isValidId(categoryId);
+    }
+
+    // --- Vehicles ---
+    match /vehicles/{vehicleId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(vehicleId) && isValidVehicle(incoming());
+      allow delete: if isValidId(vehicleId);
+    }
+
+    // --- Departments ---
+    match /departments/{departmentId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(departmentId) && isValidDepartment(incoming());
+      allow delete: if isValidId(departmentId);
+    }
+
+    // --- Suppliers ---
+    match /suppliers/{supplierId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(supplierId) && isValidSupplier(incoming());
+      allow delete: if isValidId(supplierId);
+    }
+
+    // --- Users ---
+    match /users/{userId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(userId) && isValidUser(incoming());
+      allow delete: if isValidId(userId);
+    }
+
+    // --- Fuel Exits (Bons de sortie) ---
+    match /fuelExits/{fuelExitId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(fuelExitId) && isValidFuelExit(incoming());
+      allow delete: if isValidId(fuelExitId);
+    }
+
+    // --- Fuel Deliveries (Livraisons / Dépotages) ---
+    match /fuelDeliveries/{fuelDeliveryId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(fuelDeliveryId) && isValidFuelDelivery(incoming());
+      allow delete: if isValidId(fuelDeliveryId);
+    }
+
+    // Connection test document
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

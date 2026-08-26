@@ -1,0 +1,36 @@
+{
+  "appId": "com.gascons.fuelmanager",
+  "productName": "GASCONS",
+  "copyright": "Copyright © 2025 GASCONS",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "requestedExecutionLevel": "asInvoker"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "allowElevation": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "GASCONS - Gestion Carburant",
+    "installerLanguages": ["fr_FR", "en_US"],
+    "language": "1036"
+  }
+}

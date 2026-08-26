@@ -1,0 +1,225 @@
+{
+  "entities": {
+    "companyProfile": {
+      "title": "CompanyProfile",
+      "description": "Profil et identité de l'entreprise ou société utilisatrice",
+      "type": "object",
+      "properties": {
+        "isConfigured": { "type": "boolean", "description": "Indique si la société est configurée" },
+        "name": { "type": "string", "maxLength": 200, "description": "Raison sociale" },
+        "legalStatus": { "type": "string", "maxLength": 50, "description": "Forme juridique (SARL, SA...)" },
+        "taxId": { "type": "string", "maxLength": 100, "description": "Identifiant fiscal / NIF" },
+        "activity": { "type": "string", "maxLength": 150, "description": "Secteur d'activité" },
+        "logoUrl": { "type": "string", "maxLength": 2000000, "description": "Logo en Base64 Data URL ou URL" },
+        "phone": { "type": "string", "maxLength": 50, "description": "Numéro de téléphone" },
+        "email": { "type": "string", "maxLength": 100, "description": "Adresse email" },
+        "address": { "type": "string", "maxLength": 250, "description": "Adresse postale" },
+        "city": { "type": "string", "maxLength": 100, "description": "Ville" },
+        "country": { "type": "string", "maxLength": 100, "description": "Pays" },
+        "currency": { "type": "string", "maxLength": 20, "description": "Devise monétaire" },
+        "headerTagline": { "type": "string", "maxLength": 200, "description": "Slogan ou sous-titre" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Date de mise à jour ISO" }
+      },
+      "required": ["name", "isConfigured"]
+    },
+    "stockConfig": {
+      "title": "StockConfig",
+      "description": "Configuration globale de la cuve et des seuils d'alerte",
+      "type": "object",
+      "properties": {
+        "initialStock": { "type": "number", "description": "Stock initial en Litres" },
+        "initialStockDate": { "type": "string", "maxLength": 30, "description": "Date du stock initial" },
+        "tankCapacity": { "type": "number", "description": "Capacité totale de la cuve en Litres" },
+        "alertThreshold": { "type": "number", "description": "Seuil d'alerte de stock bas" },
+        "criticalThreshold": { "type": "number", "description": "Seuil critique de stock bas" },
+        "tankName": { "type": "string", "maxLength": 100, "description": "Nom ou désignation de la cuve" },
+        "location": { "type": "string", "maxLength": 150, "description": "Emplacement du dépôt" }
+      },
+      "required": ["initialStock", "tankCapacity", "tankName"]
+    },
+    "stockAdjustment": {
+      "title": "StockAdjustment",
+      "description": "Ajustement ou jaugeage de stock de carburant",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 100, "description": "Identifiant de l'ajustement" },
+        "date": { "type": "string", "maxLength": 30, "description": "Date de l'ajustement" },
+        "previousStock": { "type": "number", "description": "Stock avant ajustement" },
+        "newStock": { "type": "number", "description": "Nouveau stock jaugé" },
+        "difference": { "type": "number", "description": "Différence calculée en Litres" },
+        "reason": { "type": "string", "maxLength": 250, "description": "Motif de l'ajustement" },
+        "adjustedBy": { "type": "string", "maxLength": 100, "description": "Nom de l'agent" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Date de création ISO" }
+      },
+      "required": ["id", "date", "newStock", "reason", "adjustedBy"]
+    },
+    "vehicleCategory": {
+      "title": "VehicleCategory",
+      "description": "Catégorie de véhicule ou d'engin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 100, "description": "Identifiant catégorie" },
+        "name": { "type": "string", "maxLength": 100, "description": "Libellé de la catégorie" },
+        "unitType": { "type": "string", "enum": ["KM", "HEURES"], "description": "Unité de mesure (KM ou HEURES)" },
+        "defaultTargetRate": { "type": "number", "description": "Consommation théorique cible" },
+        "description": { "type": "string", "maxLength": 250, "description": "Description" },
+        "color": { "type": "string", "maxLength": 50, "description": "Code couleur UI" }
+      },
+      "required": ["id", "name", "unitType", "defaultTargetRate"]
+    },
+    "vehicle": {
+      "title": "Vehicle",
+      "description": "Véhicule ou engin de la flotte",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 100, "description": "Identifiant véhicule" },
+        "code": { "type": "string", "maxLength": 50, "description": "Code interne d'identification" },
+        "plateNumber": { "type": "string", "maxLength": 50, "description": "Immatriculation ou N° Série" },
+        "name": { "type": "string", "maxLength": 150, "description": "Marque et Modèle" },
+        "categoryId": { "type": "string", "maxLength": 100, "description": "ID de la catégorie" },
+        "departmentId": { "type": "string", "maxLength": 100, "description": "ID du département affecté" },
+        "tankCapacity": { "type": "number", "description": "Capacité du réservoir en Litres" },
+        "currentReading": { "type": "number", "description": "Dernier index compteur (KM ou H)" },
+        "unitType": { "type": "string", "enum": ["KM", "HEURES"], "description": "Unité du compteur" },
+        "assignedDriver": { "type": "string", "maxLength": 100, "description": "Chauffeur/Opérateur attitré" },
+        "status": { "type": "string", "enum": ["ACTIF", "EN_MAINTENANCE", "HORS_SERVICE"], "description": "État du véhicule" },
+        "notes": { "type": "string", "maxLength": 500, "description": "Observations" }
+      },
+      "required": ["id", "code", "plateNumber", "name", "categoryId", "departmentId", "unitType"]
+    },
+    "department": {
+      "title": "Department",
+      "description": "Département ou centre de coût",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 100, "description": "Identifiant département" },
+        "name": { "type": "string", "maxLength": 100, "description": "Nom du département" },
+        "manager": { "type": "string", "maxLength": 100, "description": "Responsable du service" },
+        "code": { "type": "string", "maxLength": 50, "description": "Code analytique" }
+      },
+      "required": ["id", "name", "code"]
+    },
+    "supplier": {
+      "title": "Supplier",
+      "description": "Fournisseur de carburant",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 100, "description": "Identifiant fournisseur" },
+        "name": { "type": "string", "maxLength": 150, "description": "Raison sociale du fournisseur" },
+        "contactName": { "type": "string", "maxLength": 100, "description": "Nom du contact commercial" },
+        "phone": { "type": "string", "maxLength": 50, "description": "Téléphone" },
+        "email": { "type": "string", "maxLength": 100, "description": "Email" },
+        "address": { "type": "string", "maxLength": 200, "description": "Adresse" },
+        "pricePerLiter": { "type": "number", "description": "Prix unitaire au Litre" }
+      },
+      "required": ["id", "name"]
+    },
+    "user": {
+      "title": "User",
+      "description": "Compte utilisateur de l'application GASCONS",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 100, "description": "Identifiant utilisateur" },
+        "name": { "type": "string", "maxLength": 100, "description": "Nom complet" },
+        "email": { "type": "string", "maxLength": 100, "description": "Adresse email" },
+        "role": { "type": "string", "enum": ["ADMIN", "GESTIONNAIRE", "SUPERVISEUR", "POMPISTE"], "description": "Rôle et droits" },
+        "department": { "type": "string", "maxLength": 100, "description": "Département" },
+        "active": { "type": "boolean", "description": "Statut actif/inactif" },
+        "avatar": { "type": "string", "maxLength": 50, "description": "Initiales ou URL avatar" },
+        "password": { "type": "string", "maxLength": 200, "description": "Mot de passe" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Date de création" }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "fuelExit": {
+      "title": "FuelExit",
+      "description": "Bon de sortie / distribution de carburant",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 100, "description": "Identifiant unique" },
+        "ticketNumber": { "type": "string", "maxLength": 50, "description": "N° Ticket / Bon de sortie" },
+        "date": { "type": "string", "maxLength": 30, "description": "Date de distribution (YYYY-MM-DD)" },
+        "time": { "type": "string", "maxLength": 20, "description": "Heure (HH:mm)" },
+        "vehicleId": { "type": "string", "maxLength": 100, "description": "ID du véhicule servi" },
+        "categoryId": { "type": "string", "maxLength": 100, "description": "ID catégorie véhicule" },
+        "departmentId": { "type": "string", "maxLength": 100, "description": "ID département" },
+        "quantityLiters": { "type": "number", "description": "Volume distribué en Litres" },
+        "previousReading": { "type": "number", "description": "Index compteur précédent" },
+        "currentReading": { "type": "number", "description": "Index compteur actuel" },
+        "distanceOrHours": { "type": "number", "description": "Différence parcourue ou heures" },
+        "calculatedConsumption": { "type": "number", "description": "Consommation aux 100km ou par heure" },
+        "requesterName": { "type": "string", "maxLength": 100, "description": "Nom du demandeur / Chauffeur" },
+        "pumpOperatorName": { "type": "string", "maxLength": 100, "description": "Nom du pompiste" },
+        "signatureDataUrl": { "type": "string", "maxLength": 500000, "description": "Signature manuscrite en Base64" },
+        "purpose": { "type": "string", "maxLength": 200, "description": "Motif / Chantier" },
+        "notes": { "type": "string", "maxLength": 500, "description": "Notes complémentaires" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Date d'enregistrement ISO" }
+      },
+      "required": ["id", "ticketNumber", "date", "vehicleId", "quantityLiters", "currentReading", "requesterName", "pumpOperatorName"]
+    },
+    "fuelDelivery": {
+      "title": "FuelDelivery",
+      "description": "Réception / Livraison de carburant en cuve",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 100, "description": "Identifiant de la livraison" },
+        "deliveryNumber": { "type": "string", "maxLength": 50, "description": "N° Bon de Livraison ou Facture" },
+        "date": { "type": "string", "maxLength": 30, "description": "Date de réception" },
+        "time": { "type": "string", "maxLength": 20, "description": "Heure de dépotage" },
+        "supplierId": { "type": "string", "maxLength": 100, "description": "ID du fournisseur" },
+        "quantityLiters": { "type": "number", "description": "Quantité livrée en Litres" },
+        "unitPrice": { "type": "number", "description": "Prix unitaire au Litre" },
+        "totalCost": { "type": "number", "description": "Montant total de la livraison" },
+        "tankName": { "type": "string", "maxLength": 100, "description": "Nom de la cuve réceptrice" },
+        "driverName": { "type": "string", "maxLength": 100, "description": "Nom du chauffeur citerne" },
+        "truckPlate": { "type": "string", "maxLength": 50, "description": "Immatriculation camion citerne" },
+        "receiverName": { "type": "string", "maxLength": 100, "description": "Nom de l'agent réceptionnaire" },
+        "notes": { "type": "string", "maxLength": 500, "description": "Observations de livraison" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Date de création ISO" }
+      },
+      "required": ["id", "deliveryNumber", "date", "supplierId", "quantityLiters", "receiverName"]
+    }
+  },
+  "firestore": {
+    "/settings/company": {
+      "schema": "companyProfile",
+      "description": "Profil et identité officielle de la société"
+    },
+    "/settings/stockConfig": {
+      "schema": "stockConfig",
+      "description": "Configuration de la cuve et des seuils"
+    },
+    "/stockAdjustments/{adjustmentId}": {
+      "schema": "stockAdjustment",
+      "description": "Historique des ajustements physiques et étalonnages"
+    },
+    "/categories/{categoryId}": {
+      "schema": "vehicleCategory",
+      "description": "Catégories de véhicules et engins"
+    },
+    "/vehicles/{vehicleId}": {
+      "schema": "vehicle",
+      "description": "Parc de véhicules et engins enregistrés"
+    },
+    "/departments/{departmentId}": {
+      "schema": "department",
+      "description": "Départements et centres de coût"
+    },
+    "/suppliers/{supplierId}": {
+      "schema": "supplier",
+      "description": "Fournisseurs de carburant"
+    },
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "Utilisateurs et opérateurs de l'application"
+    },
+    "/fuelExits/{fuelExitId}": {
+      "schema": "fuelExit",
+      "description": "Historique des sorties et distributions de gasoil"
+    },
+    "/fuelDeliveries/{fuelDeliveryId}": {
+      "schema": "fuelDelivery",
+      "description": "Historique des réceptions et livraisons de gasoil en cuve"
+    }
+  }
+}
