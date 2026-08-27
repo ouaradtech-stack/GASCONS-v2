@@ -14,7 +14,6 @@ import {
   Lock,
   LogOut,
   Menu,
-  Monitor,
   Plus,
   Shield,
   Truck,
@@ -22,7 +21,6 @@ import {
   X,
 } from 'lucide-react';
 import { useGascons } from '../context/GasconsContext';
-import { WindowsExeModal } from './WindowsExeModal';
 
 interface NavbarProps {
   currentTab: string;
@@ -48,7 +46,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isWindowsExeModalOpen, setIsWindowsExeModalOpen] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const handleGoogleLogin = async () => {
@@ -175,16 +172,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
               >
                 {stockPercentage}%
               </span>
-            </button>
-
-            {/* Windows .EXE Installer Guide Button */}
-            <button
-              onClick={() => setIsWindowsExeModalOpen(true)}
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white text-xs font-semibold transition-all group"
-              title="Installer en version Desktop Windows (.EXE)"
-            >
-              <Monitor className="w-3.5 h-3.5 text-blue-400 group-hover:scale-110 transition-transform" />
-              <span>Windows .EXE</span>
             </button>
 
             {/* Quick New Distribution Action Button */}
@@ -369,18 +356,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
             );
           })}
 
-          <div className="pt-2 border-t border-slate-800 space-y-2">
-            <button
-              onClick={() => {
-                setIsWindowsExeModalOpen(true);
-                setIsMobileMenuOpen(false);
-              }}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs"
-            >
-              <Monitor className="w-4 h-4 text-blue-400" />
-              <span>Installer Version Windows (.EXE)</span>
-            </button>
-
+          <div className="pt-2 border-t border-slate-800">
             <button
               onClick={() => {
                 onNavigate('nouvelle-sortie');
@@ -394,12 +370,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
           </div>
         </div>
       )}
-
-      {/* Windows EXE Installer Guide Modal */}
-      <WindowsExeModal
-        isOpen={isWindowsExeModalOpen}
-        onClose={() => setIsWindowsExeModalOpen(false)}
-      />
     </header>
   );
 };

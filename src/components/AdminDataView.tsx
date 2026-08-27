@@ -40,7 +40,6 @@ import {
   VehicleUnitType,
 } from '../types';
 import { CompanySetupModal } from './CompanySetupModal';
-import { WindowsExeModal } from './WindowsExeModal';
 
 export const AdminDataView: React.FC = () => {
   const {
@@ -80,7 +79,6 @@ export const AdminDataView: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
-  const [isWindowsExeModalOpen, setIsWindowsExeModalOpen] = useState(false);
 
   // 1. Vehicle Modal
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
@@ -1132,39 +1130,6 @@ export const AdminDataView: React.FC = () => {
             </div>
           </div>
 
-          {/* Windows Desktop Packaging Hero Card */}
-          <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 text-white border border-slate-800 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-black text-xl shadow-md shadow-blue-500/30">
-                <Monitor className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-blue-500/30 text-blue-200 border border-blue-400/20">
-                    Application Desktop
-                  </span>
-                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/30 text-emerald-300 border border-emerald-400/20">
-                    Windows 10 / 11 (.EXE)
-                  </span>
-                </div>
-                <h4 className="text-sm font-black text-white mt-1">
-                  Générer l Installeur Windows (.EXE) pour PC & Chantiers
-                </h4>
-                <p className="text-xs text-slate-300 mt-0.5">
-                  Fonctionnement 100% Hors-Ligne, raccourci bureau, démarrage instantané et impression directe des tickets
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setIsWindowsExeModalOpen(true)}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md shadow-blue-600/30 transition-all shrink-0"
-            >
-              <Package className="w-4 h-4" />
-              <span>Convertir en .EXE Windows</span>
-            </button>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Export block */}
             <div className="p-5 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
@@ -1736,11 +1701,6 @@ export const AdminDataView: React.FC = () => {
       <CompanySetupModal
         isOpen={isCompanyModalOpen}
         onClose={() => setIsCompanyModalOpen(false)}
-      />
-      {/* Windows EXE Packaging Guide Modal */}
-      <WindowsExeModal
-        isOpen={isWindowsExeModalOpen}
-        onClose={() => setIsWindowsExeModalOpen(false)}
       />
     </div>
   );
