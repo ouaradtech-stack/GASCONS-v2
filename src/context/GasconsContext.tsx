@@ -107,6 +107,7 @@ interface GasconsContextType {
 
   fuelDeliveries: FuelDelivery[];
   addFuelDelivery: (delivery: Omit<FuelDelivery, 'id' | 'createdAt'>) => FuelDelivery;
+  updateFuelDelivery: (id: string, updates: Partial<FuelDelivery>) => void;
   deleteFuelDelivery: (id: string) => void;
 
   // Helpers
@@ -934,6 +935,25 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return newDelivery;
   };
 
+  const updateFuelDelivery = (id: string, updatedFields: Partial<FuelDelivery>) => {
+    setFuelDeliveries((prev) =>
+      prev.map((d) => {
+        if (d.id !== id) return d;
+        const merged: FuelDelivery = { ...d, ...updatedFields };
+        if (merged.quantityLiters !== undefined && merged.unitPrice !== undefined) {
+          merged.totalCost = Number(merged.quantityLiters || 0) * Number(merged.unitPrice || 0);
+        }
+        if (SupabaseService.isAvailable()) {
+          SupabaseService.saveFuelDelivery(merged).catch(console.warn);
+        }
+        if (!isFirebasePurged) {
+          FirebaseService.saveFuelDelivery(merged).catch(console.warn);
+        }
+        return merged;
+      })
+    );
+  };
+
   const deleteFuelDelivery = (id: string) => {
     setFuelDeliveries((prev) => prev.filter((d) => d.id !== id));
     if (SupabaseService.isAvailable()) {
@@ -1076,6 +1096,7 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteFuelExit,
         fuelDeliveries,
         addFuelDelivery,
+        updateFuelDelivery,
         deleteFuelDelivery,
         getVehicleById,
         getCategoryById,

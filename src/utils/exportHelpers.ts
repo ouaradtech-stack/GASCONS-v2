@@ -1,4 +1,4 @@
-import { CompanyProfile, Department, FuelExit, StockConfig, Vehicle, VehicleCategory } from '../types';
+import { CompanyProfile, Department, FuelDelivery, FuelExit, StockConfig, Supplier, Vehicle, VehicleCategory } from '../types';
 
 /**
  * Downloads a string content as a file with the given filename and mime-type.
@@ -356,4 +356,324 @@ export function downloadVoucherHTML(
 </html>`;
 
   downloadFile(html, `Bon_${exit.ticketNumber}_${exit.date}.html`, 'text/html;charset=utf-8');
+}
+
+/**
+ * Exports a list of fuel deliveries as an Excel-compatible CSV file (with UTF-8 BOM).
+ */
+export function exportDeliveriesToCSV(
+  deliveries: FuelDelivery[],
+  getSupplierById: (id: string) => Supplier | undefined,
+  filenamePrefix = 'Livraisons_Fournisseurs'
+) {
+  const headers = [
+    'N° BL / Facture',
+    'Date',
+    'Heure',
+    'Fournisseur',
+    'Volume Reçu (Litres)',
+    'Prix Unitaire (€/L)',
+    'Montant Total (€)',
+    'Cuve de Réception',
+    'Chauffeur Citerne',
+    'Immatriculation Camion',
+    'Réceptionné Par',
+    'Observations / Contrôle Qualité',
+    'Date Enregistrement',
+  ];
+
+  const escapeCSV = (val: any) => {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+
+  const rows = deliveries.map((del) => {
+    const supplier = getSupplierById(del.supplierId);
+    return [
+      escapeCSV(del.deliveryNumber),
+      escapeCSV(del.date),
+      escapeCSV(del.time),
+      escapeCSV(supplier?.name || del.supplierId),
+      escapeCSV(del.quantityLiters),
+      escapeCSV(del.unitPrice !== undefined ? del.unitPrice.toFixed(3) : '-'),
+      escapeCSV(del.totalCost !== undefined ? del.totalCost.toFixed(2) : '-'),
+      escapeCSV(del.tankName || 'Cuve Principale'),
+      escapeCSV(del.driverName || '-'),
+      escapeCSV(del.truckPlate || '-'),
+      escapeCSV(del.receiverName),
+      escapeCSV(del.notes || ''),
+      escapeCSV(del.createdAt || '-'),
+    ].join(';');
+  });
+
+  const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\r\n');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  downloadFile(csvContent, `${filenamePrefix}_${dateStr}.csv`, 'text/csv;charset=utf-8;');
+}
+
+/**
+ * Exports a single fuel delivery reception slip as a standalone printable HTML receipt.
+ */
+export function downloadDeliveryVoucherHTML(
+  delivery: FuelDelivery,
+  supplier: Supplier | undefined,
+  stockConfig: StockConfig,
+  companyProfile: CompanyProfile
+) {
+  const dateFormatted = delivery.date
+    ? new Date(delivery.date).toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      })
+    : delivery.date;
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Bon de Réception Carburant N° ${delivery.deliveryNumber}</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+      margin: 0;
+      padding: 32px 16px;
+    }
+    .ticket-card {
+      max-width: 680px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
+      padding: 32px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid #047857;
+      padding-bottom: 20px;
+      margin-bottom: 24px;
+    }
+    .company-title {
+      font-size: 20px;
+      font-weight: 900;
+      color: #047857;
+      margin: 0 0 4px 0;
+    }
+    .company-subtitle {
+      font-size: 11px;
+      color: #64748b;
+      margin: 0;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      background: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .bl-info {
+      text-align: right;
+    }
+    .bl-num {
+      font-size: 20px;
+      font-weight: 800;
+      font-family: monospace;
+      color: #047857;
+      margin-top: 4px;
+    }
+    .qty-spotlight {
+      background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+      border: 1px solid #86efac;
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .qty-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #166534;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .qty-val {
+      font-size: 36px;
+      font-weight: 900;
+      font-family: monospace;
+      color: #14532d;
+      line-height: 1.1;
+      margin: 4px 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .box {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 16px;
+      background: #f8fafc;
+    }
+    .box-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+    .row:last-child {
+      margin-bottom: 0;
+    }
+    .label {
+      color: #64748b;
+    }
+    .val {
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .signatures {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid #e2e8f0;
+    }
+    .sig-box {
+      border: 1px dashed #cbd5e1;
+      border-radius: 10px;
+      padding: 16px;
+      min-height: 90px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background: #ffffff;
+    }
+    .footer {
+      margin-top: 24px;
+      text-align: center;
+      font-size: 10px;
+      color: #94a3b8;
+      border-top: 1px solid #f1f5f9;
+      padding-top: 16px;
+    }
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+      .ticket-card {
+        border: none;
+        box-shadow: none;
+        padding: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="ticket-card">
+    <div class="header">
+      <div>
+        <span class="badge">Bon de Réception Carburant</span>
+        <h1 class="company-title">${companyProfile.name || 'ENTREPRISE'}</h1>
+        <p class="company-subtitle">${companyProfile.legalStatus || 'Société'} • NIF/RC: ${companyProfile.taxId || 'Consommation Interne'}</p>
+        <p class="company-subtitle">${companyProfile.address || ''} • ${companyProfile.phone || ''}</p>
+      </div>
+      <div class="bl-info">
+        <div style="font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: bold;">N° Bon de Livraison</div>
+        <div class="bl-num">${delivery.deliveryNumber}</div>
+        <div style="font-size: 11px; color: #64748b; margin-top: 4px;">${dateFormatted} à ${delivery.time}</div>
+      </div>
+    </div>
+
+    <div class="qty-spotlight">
+      <div>
+        <div class="qty-title">Volume Réceptionné Cuve</div>
+        <div class="qty-val">+${delivery.quantityLiters.toLocaleString('fr-FR')} <span style="font-size: 20px;">Litres</span></div>
+        <div style="font-size: 11px; color: #15803d; font-weight: 600;">Produit : Gasoil / Carburant Diesel B7</div>
+      </div>
+      <div style="text-align: right; border-left: 1px solid #a7f3d0; padding-left: 20px;">
+        <div style="font-size: 11px; color: #64748b; text-transform: uppercase;">Montant Total BL</div>
+        <div style="font-size: 22px; font-weight: 800; font-family: monospace; color: #14532d;">
+          ${delivery.totalCost ? delivery.totalCost.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €' : '-'}
+        </div>
+        <div style="font-size: 11px; color: #166534; font-weight: 600; margin-top: 4px;">
+          P.U : ${delivery.unitPrice ? delivery.unitPrice.toFixed(3) + ' €/L' : '-'}
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="box">
+        <div class="box-title">Fournisseur & Transporteur</div>
+        <div class="row"><span class="label">Société Fournisseur:</span><span class="val">${supplier?.name || delivery.supplierId}</span></div>
+        <div class="row"><span class="label">Contact Fournisseur:</span><span class="val">${supplier?.contactName || supplier?.phone || '-'}</span></div>
+        <div class="row"><span class="label">Chauffeur Citerne:</span><span class="val">${delivery.driverName || 'Non précisé'}</span></div>
+        <div class="row"><span class="label">Immatriculation Camion:</span><span class="val" style="font-family: monospace;">${delivery.truckPlate || 'Standard'}</span></div>
+      </div>
+
+      <div class="box">
+        <div class="box-title">Dépôt & Réception</div>
+        <div class="row"><span class="label">Cuve de Dépotage:</span><span class="val">${delivery.tankName || stockConfig.tankName}</span></div>
+        <div class="row"><span class="label">Capacité Cuve:</span><span class="val">${stockConfig.tankCapacity.toLocaleString('fr-FR')} L</span></div>
+        <div class="row"><span class="label">Réceptionné Par:</span><span class="val" style="color: #047857;">${delivery.receiverName}</span></div>
+        ${delivery.notes ? `<div class="row"><span class="label">Contrôle / Notes:</span><span class="val">${delivery.notes}</span></div>` : ''}
+      </div>
+    </div>
+
+    <div class="signatures">
+      <div class="sig-box">
+        <div>
+          <div style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Le Livreur / Chauffeur Citerne</div>
+          <div style="font-size: 12px; font-weight: 700; color: #0f172a; margin-top: 4px;">${delivery.driverName || supplier?.name || 'Chauffeur'}</div>
+        </div>
+        <div style="border-top: 1px dashed #cbd5e1; padding-top: 6px; font-size: 10px; color: #64748b; font-style: italic;">
+          Signature & Émargement Livreur
+        </div>
+      </div>
+
+      <div class="sig-box">
+        <div>
+          <div style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Le Responsable Réceptionnaire</div>
+          <div style="font-size: 12px; font-weight: 700; color: #047857; margin-top: 4px;">${delivery.receiverName}</div>
+        </div>
+        <div style="border-top: 1px dashed #a7f3d0; padding-top: 6px; font-size: 10px; color: #047857; font-weight: bold;">
+          CONFORME AU DÉPOTAGE ✓
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>${companyProfile.name || 'Gascons'} • Gestion & Contrôle des Approvisionnements Carburant</span>
+      <span style="display: block; margin-top: 2px;">Édité le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}</span>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  downloadFile(html, `Bon_Reception_${delivery.deliveryNumber}_${delivery.date}.html`, 'text/html;charset=utf-8');
 }
