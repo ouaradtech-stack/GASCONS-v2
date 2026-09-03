@@ -13,6 +13,9 @@ import {
   initialVehicles,
 } from '../mockData';
 import { FirebaseService } from '../services/firebaseService';
+import { SqlService } from '../services/sqlService';
+import { SupabaseService } from '../services/supabaseService';
+import { testSupabaseConnection } from '../supabase';
 import {
   CompanyProfile,
   Department,
@@ -27,10 +30,15 @@ import {
 } from '../types';
 
 export type FirebaseSyncStatus = 'connecting' | 'connected' | 'offline' | 'error';
+export type SqlSyncStatus = 'connecting' | 'connected' | 'offline' | 'error';
+export type SupabaseSyncStatus = 'connecting' | 'connected' | 'offline' | 'error';
 
 interface GasconsContextType {
-  // Firebase & Auth
+  // Database & Auth
   firebaseStatus: FirebaseSyncStatus;
+  sqlStatus: SqlSyncStatus;
+  supabaseStatus: SupabaseSyncStatus;
+  setSupabaseStatus: (status: SupabaseSyncStatus) => void;
   firebaseAuthUser: FirebaseAuthUser | null;
   isAuthenticated: boolean;
   login: (user: User) => void;
@@ -78,11 +86,18 @@ interface GasconsContextType {
 
   users: User[];
   currentUser: User;
+  isSuperAdmin: boolean;
   canManageUsers: boolean;
+  isCurrentClientSuspended: boolean;
   setCurrentUser: (user: User) => void;
   addUser: (usr: Omit<User, 'id'>) => { success: boolean; message?: string; user?: User };
   updateUser: (id: string, usr: Partial<User>) => { success: boolean; message?: string };
+  toggleUserStatus: (id: string, active: boolean, suspensionReason?: string) => Promise<boolean>;
   deleteUser: (id: string) => boolean;
+
+  // Supabase & Firebase storage management
+  purgeFirebaseData: () => Promise<{ success: boolean; count: number; error?: string }>;
+  isFirebasePurged: boolean;
 
   // Movements
   fuelExits: FuelExit[];
@@ -124,8 +139,10 @@ const STORAGE_KEYS = {
 const GasconsContext = createContext<GasconsContextType | undefined>(undefined);
 
 export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Firebase State
+  // Database & Auth State
   const [firebaseStatus, setFirebaseStatus] = useState<FirebaseSyncStatus>('connecting');
+  const [sqlStatus, setSqlStatus] = useState<SqlSyncStatus>('connecting');
+  const [supabaseStatus, setSupabaseStatus] = useState<SupabaseSyncStatus>('connecting');
   const [firebaseAuthUser, setFirebaseAuthUser] = useState<FirebaseAuthUser | null>(null);
 
   // Company Profile
@@ -212,11 +229,38 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return saved ? JSON.parse(saved) : initialDeliveries;
   });
 
-  // Test Firebase Firestore Connection on Mount
+  // Flag indicating if user purged all data from Firebase Firestore
+  const [isFirebasePurged, setIsFirebasePurged] = useState<boolean>(() => {
+    return localStorage.getItem('gascons_firebase_purged') === 'true';
+  });
+
+  // Test Firebase Firestore, SQL & Supabase Connections on Mount
   useEffect(() => {
-    ensureFirebaseAuth().catch(console.warn);
-    testFirestoreConnection().then((connected) => {
-      setFirebaseStatus(connected ? 'connected' : 'connected');
+    if (!isFirebasePurged) {
+      ensureFirebaseAuth().catch(console.warn);
+      testFirestoreConnection().then((connected) => {
+        setFirebaseStatus(connected ? 'connected' : 'connected');
+      });
+    } else {
+      setFirebaseStatus('offline');
+    }
+
+    SqlService.checkConnection().then((res) => {
+      setSqlStatus(res.status === 'ok' ? 'connected' : 'offline');
+    });
+
+    testSupabaseConnection().then(async (res) => {
+      setSupabaseStatus(res.connected ? 'connected' : 'offline');
+      if (res.connected) {
+        try {
+          const spUsers = await SupabaseService.getUsers();
+          if (spUsers && spUsers.length > 0) {
+            setUsers(spUsers);
+          }
+        } catch (e) {
+          console.warn('Supabase fetch users note:', e);
+        }
+      }
     });
 
     // Listen to Firebase Auth state changes
@@ -233,12 +277,13 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setCurrentUser(matchedUser);
           } else {
             // Create user profile for new Google sign-in
+            const isOuarad = authUser.email.toLowerCase() === 'ouaradtech@gmail.com';
             const newUser: User = {
               id: authUser.uid,
               name: authUser.displayName || authUser.email.split('@')[0],
               email: authUser.email,
-              role: authUser.email === 'ouaradtech@gmail.com' ? 'ADMIN' : 'GESTIONNAIRE',
-              department: 'Direction',
+              role: isOuarad ? 'SUPER_ADMIN' : 'GESTIONNAIRE',
+              department: isOuarad ? 'Super Administration' : 'Direction',
               active: true,
               avatar: authUser.displayName ? authUser.displayName.slice(0, 2).toUpperCase() : 'GO',
               createdAt: new Date().toISOString().slice(0, 10),
@@ -248,17 +293,25 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
               return [...prev, newUser];
             });
             setCurrentUser(newUser);
-            FirebaseService.saveUser(newUser).catch(console.warn);
+            if (SupabaseService.isAvailable()) {
+              SupabaseService.saveUser(newUser).catch(console.warn);
+            }
+            if (!isFirebasePurged) {
+              FirebaseService.saveUser(newUser).catch(console.warn);
+            }
           }
         }
       }
     });
 
     return () => unsubscribeAuth();
-  }, []);
+  }, [isFirebasePurged]);
 
-  // Firebase Realtime Subscriptions
+  // Firebase Realtime Subscriptions (only if not purged)
   useEffect(() => {
+    if (isFirebasePurged) {
+      return;
+    }
     let unsubs: (() => void)[] = [];
 
     try {
@@ -416,10 +469,23 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       updatedAt: new Date().toISOString(),
     };
     setCompanyProfile(updated);
-    FirebaseService.saveCompanyProfile(updated).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveCompanyProfile(updated).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveCompanyProfile(updated).catch(console.warn);
+    }
   };
 
-  const canManageUsers = currentUser.role === 'ADMIN';
+  const isSuperAdmin =
+    currentUser.role === 'SUPER_ADMIN' ||
+    currentUser.email?.toLowerCase() === 'ouaradtech@gmail.com';
+
+  const canManageUsers = isSuperAdmin || currentUser.role === 'ADMIN';
+
+  const isCurrentClientSuspended =
+    currentUser.role === 'SOUS_ADMIN' &&
+    (!currentUser.active || currentUser.subscriptionStatus === 'SUSPENDU');
 
   // Derived stock calculations
   const totalDeliveriesLiters = fuelDeliveries.reduce((sum, d) => sum + Number(d.quantityLiters || 0), 0);
@@ -445,7 +511,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const updateStockConfig = (config: Partial<StockConfig>) => {
     const updated: StockConfig = { ...stockConfig, ...config };
     setStockConfig(updated);
-    FirebaseService.saveStockConfig(updated).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveStockConfig(updated).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveStockConfig(updated).catch(console.warn);
+    }
   };
 
   const addStockAdjustment = (adj: Omit<StockAdjustment, 'id' | 'createdAt'>) => {
@@ -455,7 +526,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       createdAt: new Date().toISOString(),
     };
     setStockAdjustments((prev) => [newAdj, ...prev]);
-    FirebaseService.saveStockAdjustment(newAdj).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveStockAdjustment(newAdj).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveStockAdjustment(newAdj).catch(console.warn);
+    }
   };
 
   // Helper finders
@@ -496,7 +572,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: `cat-${Date.now()}`,
     };
     setCategories((prev) => [...prev, newCat]);
-    FirebaseService.saveCategory(newCat).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveCategory(newCat).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveCategory(newCat).catch(console.warn);
+    }
   };
 
   const updateCategory = (id: string, cat: Partial<VehicleCategory>) => {
@@ -504,14 +585,24 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!existing) return;
     const merged = { ...existing, ...cat };
     setCategories((prev) => prev.map((c) => (c.id === id ? merged : c)));
-    FirebaseService.saveCategory(merged).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveCategory(merged).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveCategory(merged).catch(console.warn);
+    }
   };
 
   const deleteCategory = (id: string): boolean => {
     const inUse = vehicles.some((v) => v.categoryId === id);
     if (inUse) return false;
     setCategories((prev) => prev.filter((c) => c.id !== id));
-    FirebaseService.deleteCategory(id).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.deleteCategory(id).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.deleteCategory(id).catch(console.warn);
+    }
     return true;
   };
 
@@ -522,7 +613,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: `veh-${Date.now()}`,
     };
     setVehicles((prev) => [...prev, newVeh]);
-    FirebaseService.saveVehicle(newVeh).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveVehicle(newVeh).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveVehicle(newVeh).catch(console.warn);
+    }
   };
 
   const updateVehicle = (id: string, veh: Partial<Vehicle>) => {
@@ -530,14 +626,24 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!existing) return;
     const merged = { ...existing, ...veh };
     setVehicles((prev) => prev.map((v) => (v.id === id ? merged : v)));
-    FirebaseService.saveVehicle(merged).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveVehicle(merged).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveVehicle(merged).catch(console.warn);
+    }
   };
 
   const deleteVehicle = (id: string): boolean => {
     const inUse = fuelExits.some((e) => e.vehicleId === id);
     if (inUse) return false;
     setVehicles((prev) => prev.filter((v) => v.id !== id));
-    FirebaseService.deleteVehicle(id).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.deleteVehicle(id).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.deleteVehicle(id).catch(console.warn);
+    }
     return true;
   };
 
@@ -548,7 +654,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: `dept-${Date.now()}`,
     };
     setDepartments((prev) => [...prev, newDept]);
-    FirebaseService.saveDepartment(newDept).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveDepartment(newDept).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveDepartment(newDept).catch(console.warn);
+    }
   };
 
   const updateDepartment = (id: string, dept: Partial<Department>) => {
@@ -556,7 +667,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!existing) return;
     const merged = { ...existing, ...dept };
     setDepartments((prev) => prev.map((d) => (d.id === id ? merged : d)));
-    FirebaseService.saveDepartment(merged).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveDepartment(merged).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveDepartment(merged).catch(console.warn);
+    }
   };
 
   const deleteDepartment = (id: string): boolean => {
@@ -564,7 +680,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       vehicles.some((v) => v.departmentId === id) || fuelExits.some((e) => e.departmentId === id);
     if (inUse) return false;
     setDepartments((prev) => prev.filter((d) => d.id !== id));
-    FirebaseService.deleteDepartment(id).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.deleteDepartment(id).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.deleteDepartment(id).catch(console.warn);
+    }
     return true;
   };
 
@@ -575,7 +696,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: `sup-${Date.now()}`,
     };
     setSuppliers((prev) => [...prev, newSup]);
-    FirebaseService.saveSupplier(newSup).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveSupplier(newSup).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveSupplier(newSup).catch(console.warn);
+    }
   };
 
   const updateSupplier = (id: string, sup: Partial<Supplier>) => {
@@ -583,23 +709,33 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!existing) return;
     const merged = { ...existing, ...sup };
     setSuppliers((prev) => prev.map((s) => (s.id === id ? merged : s)));
-    FirebaseService.saveSupplier(merged).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveSupplier(merged).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveSupplier(merged).catch(console.warn);
+    }
   };
 
   const deleteSupplier = (id: string): boolean => {
     const inUse = fuelDeliveries.some((d) => d.supplierId === id);
     if (inUse) return false;
     setSuppliers((prev) => prev.filter((s) => s.id !== id));
-    FirebaseService.deleteSupplier(id).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.deleteSupplier(id).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.deleteSupplier(id).catch(console.warn);
+    }
     return true;
   };
 
-  // User Actions (ADMIN permission enforced)
+  // User Actions (ADMIN & SUPER_ADMIN permissions enforced)
   const addUser = (usr: Omit<User, 'id'>): { success: boolean; message?: string; user?: User } => {
-    if (currentUser.role !== 'ADMIN') {
+    if (!canManageUsers) {
       return {
         success: false,
-        message: 'Action refusée: Seul un Administrateur (ADMIN) a le droit de créer des utilisateurs.',
+        message: 'Action refusée: Seul un Administrateur ou Super-Administrateur a le droit de créer des utilisateurs ou des sous-admins.',
       };
     }
 
@@ -621,40 +757,87 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const newUser: User = {
       ...usr,
       id: `usr-${Date.now()}`,
-      avatar: initials || 'US',
-      createdAt: new Date().toISOString().slice(0, 10),
+      avatar: usr.avatar || initials || 'US',
+      active: usr.active ?? true,
+      subscriptionStatus: usr.subscriptionStatus || (usr.active !== false ? 'ACTIF' : 'SUSPENDU'),
+      createdAt: usr.createdAt || new Date().toISOString().slice(0, 10),
     };
 
     setUsers((prev) => [...prev, newUser]);
-    FirebaseService.saveUser(newUser).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveUser(newUser).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveUser(newUser).catch(console.warn);
+    }
     return { success: true, user: newUser };
   };
 
   const updateUser = (id: string, usr: Partial<User>): { success: boolean; message?: string } => {
-    if (currentUser.role !== 'ADMIN' && currentUser.id !== id) {
+    if (!canManageUsers && currentUser.id !== id) {
       return {
         success: false,
-        message: 'Action refusée: Seul un Administrateur peut modifier d autres utilisateurs.',
+        message: 'Action refusée: Seul un Administrateur ou Super-Administrateur peut modifier des utilisateurs.',
       };
     }
 
     const existing = users.find((u) => u.id === id);
     if (!existing) return { success: false, message: 'Utilisateur non trouvé' };
-    const merged = { ...existing, ...usr };
+    const merged: User = { ...existing, ...usr };
 
     setUsers((prev) => prev.map((u) => (u.id === id ? merged : u)));
     if (currentUser.id === id) {
-      setCurrentUser((prev) => ({ ...prev, ...usr }));
+      setCurrentUser(merged);
     }
-    FirebaseService.saveUser(merged).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveUser(merged).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveUser(merged).catch(console.warn);
+    }
     return { success: true };
   };
 
+  const toggleUserStatus = async (
+    id: string,
+    active: boolean,
+    suspensionReason?: string
+  ): Promise<boolean> => {
+    if (!canManageUsers) return false;
+    const existing = users.find((u) => u.id === id);
+    if (!existing) return false;
+
+    const merged: User = {
+      ...existing,
+      active,
+      subscriptionStatus: active ? 'ACTIF' : 'SUSPENDU',
+      suspensionReason: active ? undefined : (suspensionReason || 'Désactivé par le Super Administrateur'),
+    };
+
+    setUsers((prev) => prev.map((u) => (u.id === id ? merged : u)));
+    if (currentUser.id === id) {
+      setCurrentUser(merged);
+    }
+
+    if (SupabaseService.isAvailable()) {
+      await SupabaseService.saveUser(merged);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveUser(merged).catch(console.warn);
+    }
+    return true;
+  };
+
   const deleteUser = (id: string): boolean => {
-    if (currentUser.role !== 'ADMIN') return false;
+    if (!canManageUsers) return false;
     if (currentUser.id === id || users.length <= 1) return false;
     setUsers((prev) => prev.filter((u) => u.id !== id));
-    FirebaseService.deleteUser(id).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.deleteUser(id).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.deleteUser(id).catch(console.warn);
+    }
     return true;
   };
 
@@ -677,7 +860,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       currentReading: exit.currentReading,
     });
 
-    FirebaseService.saveFuelExit(newExit).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveFuelExit(newExit).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveFuelExit(newExit).catch(console.warn);
+    }
 
     return newExit;
   };
@@ -708,7 +896,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
           });
         }
 
-        FirebaseService.saveFuelExit(merged).catch(console.warn);
+        if (SupabaseService.isAvailable()) {
+          SupabaseService.saveFuelExit(merged).catch(console.warn);
+        }
+        if (!isFirebasePurged) {
+          FirebaseService.saveFuelExit(merged).catch(console.warn);
+        }
         return merged;
       })
     );
@@ -716,7 +909,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const deleteFuelExit = (id: string) => {
     setFuelExits((prev) => prev.filter((e) => e.id !== id));
-    FirebaseService.deleteFuelExit(id).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.deleteFuelExit(id).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.deleteFuelExit(id).catch(console.warn);
+    }
   };
 
   // Fuel Delivery Actions
@@ -727,13 +925,40 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       createdAt: new Date().toISOString(),
     };
     setFuelDeliveries((prev) => [newDelivery, ...prev]);
-    FirebaseService.saveFuelDelivery(newDelivery).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveFuelDelivery(newDelivery).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.saveFuelDelivery(newDelivery).catch(console.warn);
+    }
     return newDelivery;
   };
 
   const deleteFuelDelivery = (id: string) => {
     setFuelDeliveries((prev) => prev.filter((d) => d.id !== id));
-    FirebaseService.deleteFuelDelivery(id).catch(console.warn);
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.deleteFuelDelivery(id).catch(console.warn);
+    }
+    if (!isFirebasePurged) {
+      FirebaseService.deleteFuelDelivery(id).catch(console.warn);
+    }
+  };
+
+  // Purge Firebase Data permanently
+  const purgeFirebaseData = async (): Promise<{ success: boolean; count: number; error?: string }> => {
+    try {
+      const res = await FirebaseService.purgeAllFirestoreData();
+      if (res.success) {
+        setIsFirebasePurged(true);
+        localStorage.setItem('gascons_firebase_purged', 'true');
+        setFirebaseStatus('offline');
+        return { success: true, count: res.deletedCount };
+      } else {
+        return { success: false, count: res.deletedCount, error: res.error };
+      }
+    } catch (err: any) {
+      return { success: false, count: 0, error: err?.message || 'Erreur lors de la purge Firebase' };
+    }
   };
 
   // Database Backup / Reset
@@ -795,6 +1020,9 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     <GasconsContext.Provider
       value={{
         firebaseStatus,
+        sqlStatus,
+        supabaseStatus,
+        setSupabaseStatus,
         firebaseAuthUser,
         isAuthenticated,
         login,
@@ -832,11 +1060,16 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteSupplier,
         users,
         currentUser,
+        isSuperAdmin,
         canManageUsers,
+        isCurrentClientSuspended,
         setCurrentUser,
         addUser,
         updateUser,
+        toggleUserStatus,
         deleteUser,
+        purgeFirebaseData,
+        isFirebasePurged,
         fuelExits,
         addFuelExit,
         updateFuelExit,

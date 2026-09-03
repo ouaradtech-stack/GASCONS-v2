@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'GESTIONNAIRE' | 'SUPERVISEUR' | 'POMPISTE';
+export type UserRole = 'SUPER_ADMIN' | 'SOUS_ADMIN' | 'ADMIN' | 'GESTIONNAIRE' | 'SUPERVISEUR' | 'POMPISTE';
 
 export interface User {
   id: string;
@@ -10,6 +10,18 @@ export interface User {
   avatar?: string;
   password?: string;
   createdAt?: string;
+
+  // Champs de gestion Sous-Admin & Vente Client (Licences)
+  clientCompanyName?: string; // Raison sociale de l'entreprise cliente
+  clientPhone?: string; // Numéro de contact client
+  licenseType?: 'MENSUEL' | 'ANNUEL' | 'A_VIE' | 'DEMO' | 'STARTER' | 'BUSINESS' | 'ENTERPRISE' | 'SUR_MESURE';
+  licensePrice?: number | string; // Prix de vente convenu
+  licenseExpiresAt?: string; // Date d'expiration de la licence (YYYY-MM-DD)
+  subscriptionExpiresAt?: string; // Date d'expiration de l'abonnement
+  subscriptionStatus?: 'ACTIF' | 'SUSPENDU' | 'EXPIRE' | 'EN_ESSAI';
+  suspensionReason?: string; // Motif de désactivation / suspension (ex: impayé, expiration, litige)
+  maxVehiclesQuota?: number; // Quota max de véhicules alloués
+  notes?: string; // Notes internes Super Admin
 }
 
 export interface CompanyProfile {

@@ -19,6 +19,7 @@ import {
   Truck,
   User,
   X,
+  Zap,
 } from 'lucide-react';
 import { useGascons } from '../context/GasconsContext';
 
@@ -38,10 +39,13 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
     users,
     setCurrentUser,
     firebaseStatus,
+    supabaseStatus,
     firebaseAuthUser,
     signInWithGoogle,
     signOutFirebase,
     logout,
+    isSuperAdmin,
+    isFirebasePurged,
   } = useGascons();
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -126,17 +130,22 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
             </nav>
           </div>
 
-          {/* Right Area: Tank Status Badge + Firebase Sync Badge + Quick Action + User Selector */}
+          {/* Right Area: Tank Status Badge + Supabase / Firebase Sync Badge + Quick Action + User Selector */}
           <div className="flex items-center gap-2.5 sm:gap-3">
-            {/* Firebase Real-time Cloud Sync Badge */}
-            <div
-              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-800/80 border border-slate-700/80 text-[11px] text-slate-300 font-medium"
-              title="Base de données Cloud Firebase Firestore connectée en temps réel"
+            {/* Supabase Status Badge */}
+            <button
+              onClick={() => onNavigate('base-donnees')}
+              className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-medium transition-all ${
+                supabaseStatus === 'connected'
+                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300 hover:border-emerald-400'
+                  : 'bg-slate-800/80 border-slate-700/80 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+              }`}
+              title={supabaseStatus === 'connected' ? 'Base Supabase connectée en temps réel' : 'Cliquer pour configurer Supabase'}
             >
-              <Cloud className="w-3.5 h-3.5 text-sky-400" />
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span className="text-slate-200 font-semibold">Firebase Cloud</span>
-            </div>
+              <Zap className={`w-3.5 h-3.5 ${supabaseStatus === 'connected' ? 'text-emerald-400' : 'text-slate-400'}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${supabaseStatus === 'connected' ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`} />
+              <span className="font-semibold">{supabaseStatus === 'connected' ? 'Supabase' : 'Supabase (Sync)'}</span>
+            </button>
 
             {/* Quick Tank Gauge Indicator */}
             <button
@@ -188,18 +197,46 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
             <div className="relative">
               <button
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="flex items-center gap-2 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium transition-colors"
+                className={`flex items-center gap-2 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border text-xs font-medium transition-colors ${
+                  currentUser.role === 'SUPER_ADMIN' || currentUser.email.toLowerCase() === 'ouaradtech@gmail.com'
+                    ? 'bg-gradient-to-r from-purple-950 to-slate-900 border-purple-500/50 hover:border-purple-400 text-white'
+                    : currentUser.role === 'SOUS_ADMIN'
+                    ? 'bg-gradient-to-r from-amber-950 to-slate-900 border-amber-500/50 hover:border-amber-400 text-white'
+                    : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-white'
+                }`}
               >
-                <div className="w-7 h-7 rounded-lg bg-blue-600 text-white font-bold flex items-center justify-center text-xs">
-                  {currentUser.avatar || currentUser.name[0]}
+                <div
+                  className={`w-7 h-7 rounded-lg text-white font-bold flex items-center justify-center text-xs ${
+                    currentUser.role === 'SUPER_ADMIN' || currentUser.email.toLowerCase() === 'ouaradtech@gmail.com'
+                      ? 'bg-purple-600'
+                      : currentUser.role === 'SOUS_ADMIN'
+                      ? 'bg-amber-600'
+                      : 'bg-blue-600'
+                  }`}
+                >
+                  {currentUser.role === 'SUPER_ADMIN' || currentUser.email.toLowerCase() === 'ouaradtech@gmail.com'
+                    ? '👑'
+                    : currentUser.avatar || currentUser.name[0]}
                 </div>
                 <div className="hidden md:block text-left">
-                  <div className="font-bold text-white leading-tight truncate max-w-[100px]">
-                    {currentUser.name}
+                  <div className="font-bold text-white leading-tight truncate max-w-[120px] flex items-center gap-1">
+                    <span>{currentUser.name}</span>
                   </div>
                   <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    {currentUser.role}
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        currentUser.active === false
+                          ? 'bg-rose-500'
+                          : 'bg-emerald-400'
+                      }`}
+                    />
+                    <span className="font-semibold truncate max-w-[100px]">
+                      {currentUser.role === 'SUPER_ADMIN' || currentUser.email.toLowerCase() === 'ouaradtech@gmail.com'
+                        ? 'SUPER ADMIN'
+                        : currentUser.role === 'SOUS_ADMIN'
+                        ? `CLIENT (${currentUser.clientCompanyName || 'Sous-Admin'})`
+                        : currentUser.role}
+                    </span>
                   </div>
                 </div>
                 <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden md:block" />
@@ -207,16 +244,32 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
 
               {/* User Switcher Dropdown */}
               {isUserMenuOpen && (
-                <div className="absolute right-0 mt-2 w-72 bg-white text-slate-800 rounded-2xl shadow-2xl border border-slate-200 p-2 z-50 animate-in fade-in">
+                <div className="absolute right-0 mt-2 w-80 bg-white text-slate-800 rounded-2xl shadow-2xl border border-slate-200 p-2 z-50 animate-in fade-in">
                   <div className="px-3 py-2 border-b border-slate-100 mb-1">
                     <div className="flex items-center justify-between">
-                      <p className="text-[10px] uppercase font-bold text-slate-400">Profil Actif</p>
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                        Firebase Sync
+                      <p className="text-[10px] uppercase font-bold text-slate-400">Compte Connecté</p>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                        isFirebasePurged
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-sky-100 text-sky-800 border border-sky-300'
+                      }`}>
+                        {isFirebasePurged ? 'Supabase Seul' : 'Sync Actif'}
                       </span>
                     </div>
-                    <p className="font-bold text-xs text-slate-900">{currentUser.name}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <p className="font-bold text-xs text-slate-900 truncate">{currentUser.name}</p>
+                      {currentUser.role === 'SOUS_ADMIN' && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                          Sous-Admin
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[11px] text-slate-500 truncate">{currentUser.email}</p>
+                    {currentUser.clientCompanyName && (
+                      <p className="text-[10px] text-amber-800 font-medium truncate mt-0.5">
+                        🏢 {currentUser.clientCompanyName}
+                      </p>
+                    )}
                   </div>
 
                   {/* Google Auth Status Section */}
@@ -264,9 +317,13 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
                     )}
                   </div>
 
-                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                  <div className="space-y-1 max-h-56 overflow-y-auto">
                     {users.map((u) => {
                       const isSelected = u.id === currentUser.id;
+                      const isSuper = u.role === 'SUPER_ADMIN' || u.email.toLowerCase() === 'ouaradtech@gmail.com';
+                      const isSous = u.role === 'SOUS_ADMIN';
+                      const isSuspended = u.active === false || u.subscriptionStatus === 'SUSPENDU';
+
                       return (
                         <button
                           key={u.id}
@@ -276,20 +333,43 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
                           }}
                           className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-colors ${
                             isSelected
-                              ? 'bg-blue-50 text-blue-900 font-bold'
+                              ? 'bg-blue-50 text-blue-900 font-bold border border-blue-200'
+                              : isSuspended
+                              ? 'bg-rose-50/50 hover:bg-rose-100/60 text-slate-700'
                               : 'hover:bg-slate-50 text-slate-700'
                           }`}
                         >
-                          <div className="flex items-center gap-2 text-left">
-                            <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-bold text-[10px]">
-                              {u.avatar || u.name[0]}
+                          <div className="flex items-center gap-2 text-left truncate">
+                            <span
+                              className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
+                                isSuper
+                                  ? 'bg-purple-900 text-amber-300'
+                                  : isSous
+                                  ? 'bg-amber-600 text-white'
+                                  : 'bg-slate-200 text-slate-800'
+                              }`}
+                            >
+                              {isSuper ? '👑' : u.avatar || u.name[0]}
                             </span>
-                            <div>
-                              <div className="font-semibold text-xs leading-tight">{u.name}</div>
-                              <div className="text-[10px] text-slate-400">{u.role}</div>
+                            <div className="truncate">
+                              <div className="font-semibold text-xs leading-tight truncate flex items-center gap-1">
+                                <span>{u.name}</span>
+                                {isSuspended && (
+                                  <span className="text-[9px] font-bold text-rose-600 bg-rose-100 px-1 rounded">
+                                    Désactivé
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-400 truncate">
+                                {isSuper
+                                  ? 'Super Administrateur'
+                                  : isSous
+                                  ? `Sous-Admin • ${u.clientCompanyName || 'Client'}`
+                                  : u.role}
+                              </div>
                             </div>
                           </div>
-                          {isSelected && <span className="text-blue-600 font-bold">✓</span>}
+                          {isSelected && <span className="text-blue-600 font-bold shrink-0 ml-1">✓</span>}
                         </button>
                       );
                     })}
@@ -303,7 +383,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
                       }}
                       className="w-full text-left py-1 text-xs text-blue-600 hover:underline font-semibold flex items-center justify-between"
                     >
-                      <span>Gérer les profils</span>
+                      <span>Gérer les comptes & sous-admins</span>
                       <span>→</span>
                     </button>
 
@@ -367,6 +447,29 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
               <Plus className="w-4 h-4" />
               <span>+ Nouvelle Sortie de Gasoil</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Global Suspension Alert for Suspended Sous-Admins */}
+      {(currentUser.active === false || currentUser.subscriptionStatus === 'SUSPENDU') && (
+        <div className="bg-gradient-to-r from-rose-700 via-rose-600 to-rose-700 text-white px-4 py-2 text-xs font-semibold shadow-inner border-t border-rose-500/40 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-200 shrink-0 animate-pulse" />
+            <span>
+              <strong className="underline">COMPTE CLIENT SUSPENDU :</strong>{' '}
+              {currentUser.suspensionReason
+                ? currentUser.suspensionReason
+                : 'Accès désactivé par l administrateur principal (OuaradTech).'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="px-2 py-0.5 rounded bg-rose-900/80 font-mono text-rose-200 border border-rose-500">
+              Coupure Système Active
+            </span>
+            <span className="text-rose-100 hidden sm:inline">
+              Veuillez contacter le support ou régler la souscription.
+            </span>
           </div>
         </div>
       )}

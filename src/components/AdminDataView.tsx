@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 import {
   AlertCircle,
+  Award,
+  Ban,
+  Briefcase,
   Building,
   Building2,
+  Check,
   CheckCircle2,
   Cloud,
   Database,
@@ -17,10 +21,13 @@ import {
   Monitor,
   Package,
   Plus,
+  Power,
+  PowerOff,
   RefreshCw,
   Search,
   Shield,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Truck,
@@ -28,6 +35,7 @@ import {
   UserCheck,
   Users,
   X,
+  Zap,
 } from 'lucide-react';
 import { useGascons } from '../context/GasconsContext';
 import {
@@ -40,6 +48,8 @@ import {
   VehicleUnitType,
 } from '../types';
 import { CompanySetupModal } from './CompanySetupModal';
+import { SupabaseSetupModal } from './SupabaseSetupModal';
+import { SupabaseService } from '../services/supabaseService';
 
 export const AdminDataView: React.FC = () => {
   const {
@@ -65,12 +75,23 @@ export const AdminDataView: React.FC = () => {
     updateUser,
     deleteUser,
     currentUser,
+    isSuperAdmin,
     canManageUsers,
+    isCurrentClientSuspended,
+    toggleUserStatus,
+    purgeFirebaseData,
+    isFirebasePurged,
     setCurrentUser,
     exportDatabaseJSON,
     importDatabase,
     resetToDefaults,
+    stockConfig,
+    stockAdjustments,
+    fuelExits,
+    fuelDeliveries,
     firebaseStatus,
+    sqlStatus,
+    supabaseStatus,
     firebaseAuthUser,
     signInWithGoogle,
   } = useGascons();
@@ -79,6 +100,7 @@ export const AdminDataView: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
 
   // 1. Vehicle Modal
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
@@ -103,7 +125,7 @@ export const AdminDataView: React.FC = () => {
   const [catColor, setCatColor] = useState('#3b82f6');
   const [catDesc, setCatDesc] = useState('');
 
-  // 3. User Modal with Password
+  // 3. User Modal with Password & Sous-Admin licensing fields
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [userName, setUserName] = useState('');
@@ -113,6 +135,28 @@ export const AdminDataView: React.FC = () => {
   const [userPassword, setUserPassword] = useState('');
   const [userPasswordConfirm, setUserPasswordConfirm] = useState('');
   const [showUserPassword, setShowUserPassword] = useState(false);
+
+  // Sous-Admin specific fields
+  const [userClientCompanyName, setUserClientCompanyName] = useState('');
+  const [userLicenseType, setUserLicenseType] = useState<'STARTER' | 'BUSINESS' | 'ENTERPRISE' | 'SUR_MESURE'>('BUSINESS');
+  const [userMaxVehicles, setUserMaxVehicles] = useState('20');
+  const [userSubscriptionStatus, setUserSubscriptionStatus] = useState<'ACTIF' | 'SUSPENDU' | 'EXPIRE'>('ACTIF');
+  const [userActive, setUserActive] = useState(true);
+  const [userSuspensionReason, setUserSuspensionReason] = useState('');
+  const [userExpiresAt, setUserExpiresAt] = useState('');
+  const [userFilterTab, setUserFilterTab] = useState<'all' | 'sous_admin' | 'team'>('all');
+
+  // Quick suspension modal
+  const [isSuspendModalOpen, setIsSuspendModalOpen] = useState(false);
+  const [userToSuspend, setUserToSuspend] = useState<User | null>(null);
+  const [suspendReasonInput, setSuspendReasonInput] = useState('');
+
+  // Migration to Supabase & Firebase Purge states
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationLogs, setMigrationLogs] = useState<string[]>([]);
+  const [migrationDone, setMigrationDone] = useState(false);
+  const [isPurgingFirebase, setIsPurgingFirebase] = useState(false);
+  const [purgeSuccessInfo, setPurgeSuccessInfo] = useState<string | null>(null);
 
   // 4. Department Modal
   const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
@@ -240,13 +284,13 @@ export const AdminDataView: React.FC = () => {
   };
 
   // Open User Modal
-  const handleOpenUserModal = (u?: User) => {
+  const handleOpenUserModal = (u?: User, presetRole?: UserRole) => {
     setErrorMsg('');
     setShowUserPassword(false);
     if (u) {
       // If editing another user and not Admin
       if (!canManageUsers && currentUser.id !== u.id) {
-        setErrorMsg('Action refusée: Seul un Administrateur peut modifier d autres utilisateurs.');
+        setErrorMsg('Action refusée: Seul un Administrateur ou Super-Admin peut modifier d autres utilisateurs.');
         return;
       }
       setEditingUserId(u.id);
@@ -256,19 +300,33 @@ export const AdminDataView: React.FC = () => {
       setUserDept(u.department);
       setUserPassword(u.password || '');
       setUserPasswordConfirm(u.password || '');
+      setUserClientCompanyName(u.clientCompanyName || '');
+      setUserLicenseType(u.licenseType || 'BUSINESS');
+      setUserMaxVehicles(String(u.maxVehiclesQuota || 20));
+      setUserSubscriptionStatus(u.subscriptionStatus || (u.active !== false ? 'ACTIF' : 'SUSPENDU'));
+      setUserActive(u.active ?? true);
+      setUserSuspensionReason(u.suspensionReason || '');
+      setUserExpiresAt(u.subscriptionExpiresAt || u.licenseExpiresAt || '');
     } else {
-      // Creating new user requires ADMIN role
+      // Creating new user requires ADMIN or SUPER_ADMIN role
       if (!canManageUsers) {
-        setErrorMsg('Action refusée: Seul un Administrateur (ADMIN) a le droit de créer des utilisateurs.');
+        setErrorMsg('Action refusée: Seul un Administrateur ou Super-Admin a le droit de créer des utilisateurs ou sous-admins.');
         return;
       }
       setEditingUserId(null);
       setUserName('');
       setUserEmail('');
-      setUserRole('POMPISTE');
-      setUserDept(departments[0]?.name || 'Exploitation');
+      setUserRole(presetRole || 'SOUS_ADMIN');
+      setUserDept(presetRole === 'SOUS_ADMIN' ? 'Client Externe' : (departments[0]?.name || 'Direction'));
       setUserPassword('');
       setUserPasswordConfirm('');
+      setUserClientCompanyName('');
+      setUserLicenseType('BUSINESS');
+      setUserMaxVehicles('20');
+      setUserSubscriptionStatus('ACTIF');
+      setUserActive(true);
+      setUserSuspensionReason('');
+      setUserExpiresAt('');
     }
     setIsUserModalOpen(true);
   };
@@ -304,12 +362,22 @@ export const AdminDataView: React.FC = () => {
       }
     }
 
+    const isSousAdmin = userRole === 'SOUS_ADMIN';
+
     const payload: Partial<User> & { name: string; email: string; role: UserRole; department: string; active: boolean } = {
       name: userName.trim(),
       email: userEmail.trim(),
       role: userRole,
-      department: userDept.trim() || 'Exploitation',
-      active: true,
+      department: userDept.trim() || (isSousAdmin ? 'Client Externe' : 'Direction'),
+      active: userActive,
+      subscriptionStatus: userSubscriptionStatus,
+      ...(isSousAdmin ? {
+        clientCompanyName: userClientCompanyName.trim() || userName.trim(),
+        licenseType: userLicenseType,
+        maxVehiclesQuota: Number(userMaxVehicles) || 20,
+        subscriptionExpiresAt: userExpiresAt || undefined,
+        suspensionReason: userActive ? undefined : (userSuspensionReason || 'Désactivé par le Super Administrateur'),
+      } : {}),
       ...(userPassword ? { password: userPassword } : {}),
     };
 
@@ -319,18 +387,152 @@ export const AdminDataView: React.FC = () => {
         setErrorMsg(res.message || 'Erreur lors de la modification.');
         return;
       }
-      setSuccessMsg('Utilisateur et mot de passe mis à jour avec succès !');
+      setSuccessMsg('Compte utilisateur / sous-admin mis à jour avec succès !');
     } else {
       const res = addUser(payload as Omit<User, 'id'>);
       if (!res.success) {
         setErrorMsg(res.message || 'Erreur lors de la création de l utilisateur.');
         return;
       }
-      setSuccessMsg(`Utilisateur ${payload.name} (${payload.role}) créé avec mot de passe !`);
+      setSuccessMsg(
+        isSousAdmin
+          ? `Sous-Admin Client "${payload.name}" (${userClientCompanyName || 'Entreprise'}) créé avec succès !`
+          : `Utilisateur ${payload.name} (${payload.role}) créé avec mot de passe !`
+      );
     }
 
     setTimeout(() => setSuccessMsg(''), 4000);
     setIsUserModalOpen(false);
+  };
+
+  // Quick suspension handler
+  const handleOpenSuspendModal = (u: User) => {
+    setUserToSuspend(u);
+    setSuspendReasonInput(u.suspensionReason || 'Non-paiement de licence ou suspension administrative');
+    setIsSuspendModalOpen(true);
+  };
+
+  const handleConfirmSuspend = async () => {
+    if (!userToSuspend) return;
+    const ok = await toggleUserStatus(userToSuspend.id, false, suspendReasonInput);
+    if (ok) {
+      setSuccessMsg(`Le sous-admin client "${userToSuspend.clientCompanyName || userToSuspend.name}" a été DÉSACTIVÉ.`);
+    } else {
+      setErrorMsg('Erreur lors de la désactivation.');
+    }
+    setIsSuspendModalOpen(false);
+    setUserToSuspend(null);
+    setTimeout(() => setSuccessMsg(''), 4000);
+  };
+
+  const handleReactivateUser = async (u: User) => {
+    const ok = await toggleUserStatus(u.id, true);
+    if (ok) {
+      setSuccessMsg(`Le sous-admin client "${u.clientCompanyName || u.name}" a été RÉACTIVÉ avec succès !`);
+    } else {
+      setErrorMsg('Erreur lors de la réactivation.');
+    }
+    setTimeout(() => setSuccessMsg(''), 4000);
+  };
+
+  // Migration to Supabase & Firebase Purge handlers
+  const handleMigrateToSupabase = async () => {
+    setIsMigrating(true);
+    setMigrationLogs([]);
+    setErrorMsg('');
+    const logs: string[] = [];
+
+    const addLog = (msg: string) => {
+      logs.push(`[${new Date().toLocaleTimeString('fr-FR')}] ${msg}`);
+      setMigrationLogs([...logs]);
+    };
+
+    try {
+      addLog('Vérification de la connexion Supabase...');
+      if (!SupabaseService.isAvailable()) {
+        throw new Error('Supabase n est pas encore configuré. Renseignez l URL et la clé Supabase.');
+      }
+
+      addLog('1/9 Migration du Profil Société vers Supabase...');
+      await SupabaseService.saveCompanyProfile(companyProfile);
+
+      addLog('2/9 Migration de la Configuration Cuve vers Supabase...');
+      await SupabaseService.saveStockConfig(stockConfig);
+
+      addLog(`3/9 Migration des Catégories (${categories.length} éléments) vers Supabase...`);
+      for (const cat of categories) {
+        await SupabaseService.saveCategory(cat);
+      }
+
+      addLog(`4/9 Migration du Parc Véhicules (${vehicles.length} véhicules) vers Supabase...`);
+      for (const veh of vehicles) {
+        await SupabaseService.saveVehicle(veh);
+      }
+
+      addLog(`5/9 Migration des Départements (${departments.length} départements) vers Supabase...`);
+      for (const dept of departments) {
+        await SupabaseService.saveDepartment(dept);
+      }
+
+      addLog(`6/9 Migration des Fournisseurs (${suppliers.length} fournisseurs) vers Supabase...`);
+      for (const sup of suppliers) {
+        await SupabaseService.saveSupplier(sup);
+      }
+
+      addLog(`7/9 Migration des Utilisateurs & Sous-Admins (${users.length} comptes) vers Supabase...`);
+      for (const usr of users) {
+        await SupabaseService.saveUser(usr);
+      }
+
+      addLog(`8/9 Migration des Bons de Sortie Gasoil (${fuelExits.length} sorties) vers Supabase...`);
+      for (const exit of fuelExits) {
+        await SupabaseService.saveFuelExit(exit);
+      }
+
+      addLog(`9/9 Migration des Réceptions Carburant (${fuelDeliveries.length} livraisons) vers Supabase...`);
+      for (const del of fuelDeliveries) {
+        await SupabaseService.saveFuelDelivery(del);
+      }
+
+      addLog('🎉 SUCCÈS : 100% des données ont été migrées et stockées dans Supabase PostgreSQL !');
+      setMigrationDone(true);
+      setSuccessMsg('Migration complète vers Supabase réussie avec succès !');
+    } catch (err: any) {
+      addLog(`❌ Échec : ${err?.message || err}`);
+      setErrorMsg(`Erreur migration Supabase : ${err?.message || err}`);
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
+  const handlePurgeFirebase = async () => {
+    const confirm1 = window.confirm(
+      '⚠️ SUPPRESSION DÉFINITIVE CHEZ FIREBASE :\n\nÊtes-vous sûr de vouloir supprimer TOUTES les données chez Firebase Firestore ?\n\nCette action va vider toutes les collections Firebase pour que vos données soient UNIQUEMENT conservées dans Supabase.'
+    );
+    if (!confirm1) return;
+
+    const confirm2 = window.prompt(
+      'TAPEZ "PURGER" EN MAJUSCULES POUR CONFIRMER LA SUPPRESSION DÉFINITIVE DE FIREBASE :'
+    );
+    if (confirm2 !== 'PURGER') {
+      alert('Action annulée : Le mot de confirmation est incorrect.');
+      return;
+    }
+
+    setIsPurgingFirebase(true);
+    try {
+      const res = await purgeFirebaseData();
+      if (res.success) {
+        setPurgeSuccessInfo(`Purge Firebase terminée : ${res.count} documents Firestore ont été définitivement supprimés.`);
+        setSuccessMsg('Données Firebase supprimées avec succès ! Supabase est désormais la seule base.');
+      } else {
+        setErrorMsg(`Erreur lors de la suppression Firebase : ${res.error}`);
+      }
+    } catch (err: any) {
+      setErrorMsg(`Erreur lors de la purge : ${err?.message || err}`);
+    } finally {
+      setIsPurgingFirebase(false);
+    }
   };
 
   // Open Dept Modal
@@ -715,14 +917,47 @@ export const AdminDataView: React.FC = () => {
       {/* 3. USERS TAB */}
       {activeTab === 'users' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
-          {/* Admin Rights Info / Warning */}
-          {!canManageUsers ? (
+          {/* Super Admin Executive Banner */}
+          {isSuperAdmin ? (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 text-white border border-indigo-800 shadow-md">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-400/30 flex items-center justify-center font-bold text-lg shadow-inner">
+                    👑
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+                        Console Super-Administrateur Master
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                        {currentUser.email}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      Contrôle central des licences : Vendez des accès Sous-Admins à vos clients, définissez leurs quotas et désactivez-les instantanément en cas d impayé ou de litige.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleOpenUserModal(undefined, 'SOUS_ADMIN')}
+                    className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95"
+                  >
+                    <Award className="w-4 h-4" />
+                    <span>+ Vendre Licence Client (Sous-Admin)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : !canManageUsers ? (
             <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3">
               <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
               <div>
-                <p className="font-bold text-xs">Accès Restreint : Seul l Administrateur (ADMIN) a le droit de créer ou modifier les utilisateurs</p>
+                <p className="font-bold text-xs">Accès Restreint : Seul un Administrateur peut créer ou modifier les utilisateurs</p>
                 <p className="text-[11px] text-amber-700 mt-0.5">
-                  Votre profil actuel est <span className="font-bold uppercase font-mono">{currentUser.role}</span>. Pour créer de nouveaux utilisateurs ou réinitialiser des mots de passe, veuillez vous connecter avec un compte Administrateur (ex: <span className="font-semibold">Ahmed Benali</span>).
+                  Votre profil actuel est <span className="font-bold uppercase font-mono">{currentUser.role}</span>. Connectez-vous avec un compte Administrateur pour gérer les comptes.
                 </p>
               </div>
             </div>
@@ -731,7 +966,7 @@ export const AdminDataView: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-purple-600" />
                 <span className="font-semibold">
-                  Droits Administrateur Actifs : Vous pouvez créer des utilisateurs, définir leurs mots de passe et leurs niveaux d accès.
+                  Droits Administrateur Actifs : Gestion des comptes et mots de passe.
                 </span>
               </div>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-200 text-purple-900">
@@ -740,119 +975,248 @@ export const AdminDataView: React.FC = () => {
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-            <div>
-              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                <Users className="w-4 h-4 text-blue-600" />
-                Comptes Utilisateurs & Mots de Passe
-              </h3>
-              <p className="text-xs text-slate-500">
-                Gestion des accès sécurisés pour Pompistes, Gestionnaires de stock et Superviseurs de chantiers
-              </p>
+          {/* Sub-navigation Filters and Actions */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setUserFilterTab('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  userFilterTab === 'all'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Tous ({users.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserFilterTab('sous_admin')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  userFilterTab === 'sous_admin'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                }`}
+              >
+                <Award className="w-3.5 h-3.5" />
+                <span>Clients Sous-Admins ({users.filter((u) => u.role === 'SOUS_ADMIN').length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserFilterTab('team')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  userFilterTab === 'team'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Équipe Interne ({users.filter((u) => u.role !== 'SOUS_ADMIN').length})
+              </button>
             </div>
 
-            <button
-              onClick={() => handleOpenUserModal()}
-              disabled={!canManageUsers}
-              title={!canManageUsers ? 'Seul un Administrateur peut créer des utilisateurs' : 'Créer un compte utilisateur avec mot de passe'}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all ${
-                canManageUsers
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white active:scale-95'
-                  : 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
-              }`}
-            >
-              {canManageUsers ? <Plus className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5" />}
-              <span>Créer Utilisateur & Mot de Passe</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {canManageUsers && (
+                <button
+                  onClick={() => handleOpenUserModal(undefined, 'POMPISTE')}
+                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-300"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Nouveau Compte Interne</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {users.map((u) => {
-              const isCurrent = currentUser.id === u.id;
-              const hasPassword = Boolean(u.password);
-              return (
-                <div
-                  key={u.id}
-                  className={`p-4 rounded-xl border transition-all ${
-                    isCurrent
-                      ? 'bg-blue-50/60 border-blue-300 ring-2 ring-blue-500/20 shadow-xs'
-                      : 'bg-slate-50 border-slate-200 hover:bg-white hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="w-8 h-8 rounded-full bg-slate-900 text-white font-black text-xs flex items-center justify-center shadow-xs">
-                      {u.avatar || u.name[0]}
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                        u.role === 'ADMIN'
-                          ? 'bg-purple-100 text-purple-900 border border-purple-200'
-                          : u.role === 'GESTIONNAIRE'
-                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
-                          : u.role === 'SUPERVISEUR'
-                          ? 'bg-amber-100 text-amber-900 border border-amber-200'
-                          : 'bg-blue-100 text-blue-900 border border-blue-200'
-                      }`}
-                    >
-                      {u.role}
-                    </span>
-                  </div>
+          {/* Users Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {users
+              .filter((u) => {
+                if (userFilterTab === 'sous_admin') return u.role === 'SOUS_ADMIN';
+                if (userFilterTab === 'team') return u.role !== 'SOUS_ADMIN';
+                return true;
+              })
+              .map((u) => {
+                const isCurrent = currentUser.id === u.id;
+                const hasPassword = Boolean(u.password);
+                const isSousAdmin = u.role === 'SOUS_ADMIN';
+                const isSuper = u.role === 'SUPER_ADMIN' || u.email.toLowerCase() === 'ouaradtech@gmail.com';
+                const isSuspended = u.active === false || u.subscriptionStatus === 'SUSPENDU';
 
-                  <h4 className="font-bold text-xs text-slate-900 truncate">{u.name}</h4>
-                  <p className="text-[11px] text-slate-500 truncate">{u.email}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{u.department}</p>
+                return (
+                  <div
+                    key={u.id}
+                    className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+                      isCurrent
+                        ? 'bg-blue-50/60 border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
+                        : isSuspended
+                        ? 'bg-rose-50/40 border-rose-300 hover:border-rose-400'
+                        : isSousAdmin
+                        ? 'bg-gradient-to-b from-amber-50/40 to-slate-50 border-amber-200 hover:border-amber-300 shadow-2xs'
+                        : isSuper
+                        ? 'bg-gradient-to-b from-purple-50/40 to-slate-50 border-purple-300'
+                        : 'bg-slate-50 border-slate-200 hover:bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div>
+                      {/* Top Badges */}
+                      <div className="flex items-center justify-between mb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-9 h-9 rounded-xl text-white font-black text-xs flex items-center justify-center shadow-xs ${
+                              isSuper
+                                ? 'bg-purple-900'
+                                : isSousAdmin
+                                ? 'bg-amber-600'
+                                : 'bg-slate-900'
+                            }`}
+                          >
+                            {u.avatar || u.name[0]}
+                          </span>
+                          <div>
+                            <span
+                              className={`text-[10px] font-black px-2 py-0.5 rounded border inline-block ${
+                                isSuper
+                                  ? 'bg-purple-100 text-purple-900 border-purple-300'
+                                  : isSousAdmin
+                                  ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                  : u.role === 'ADMIN'
+                                  ? 'bg-indigo-100 text-indigo-900 border-indigo-300'
+                                  : u.role === 'GESTIONNAIRE'
+                                  ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                  : u.role === 'SUPERVISEUR'
+                                  ? 'bg-sky-100 text-sky-900 border-sky-300'
+                                  : 'bg-slate-100 text-slate-800 border-slate-300'
+                              }`}
+                            >
+                              {isSuper ? '👑 SUPER ADMIN' : isSousAdmin ? '⭐ CLIENT SOUS-ADMIN' : u.role}
+                            </span>
+                          </div>
+                        </div>
 
-                  {/* Password & Security Badge */}
-                  <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex items-center justify-between text-[10px]">
-                    <span className="text-slate-500 flex items-center gap-1">
-                      <Lock className="w-3 h-3 text-slate-400" />
-                      Mot de passe :
-                    </span>
-                    <span className="font-mono font-semibold text-slate-700 bg-white px-1.5 py-0.2 rounded border border-slate-200">
-                      {hasPassword ? '••••••••' : 'Non défini'}
-                    </span>
-                  </div>
+                        {/* Status badge */}
+                        {isSuspended ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1">
+                            <Ban className="w-3 h-3 text-rose-600" />
+                            DÉSACTIVÉ
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            ACTIF
+                          </span>
+                        )}
+                      </div>
 
-                  <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-slate-200 text-xs">
-                    <button
-                      onClick={() => setCurrentUser(u)}
-                      disabled={isCurrent}
-                      className={`font-semibold text-[11px] ${
-                        isCurrent ? 'text-emerald-700 font-bold' : 'text-blue-600 hover:underline'
-                      }`}
-                    >
-                      {isCurrent ? '✓ Actif' : 'Se connecter'}
-                    </button>
-
-                    <div className="flex items-center gap-1">
-                      {(canManageUsers || isCurrent) && (
-                        <button
-                          onClick={() => handleOpenUserModal(u)}
-                          title="Modifier utilisateur & mot de passe"
-                          className="p-1 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-slate-100"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
+                      {/* Client Company Name if Sous-Admin */}
+                      {isSousAdmin && (
+                        <div className="mb-2 p-2 rounded-xl bg-amber-50/80 border border-amber-200/80">
+                          <div className="flex items-center gap-1.5 text-xs font-black text-amber-950 truncate">
+                            <Building className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                            <span>{u.clientCompanyName || 'Entreprise Cliente'}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-amber-800 mt-1 font-semibold">
+                            <span>Licence: {u.licenseType || 'BUSINESS'}</span>
+                            <span className="font-mono">Quota: {u.maxVehiclesQuota || 20} véh.</span>
+                          </div>
+                        </div>
                       )}
 
-                      {canManageUsers && users.length > 1 && !isCurrent && (
-                        <button
-                          onClick={() => {
-                            if (window.confirm(`Supprimer l utilisateur ${u.name} ?`)) {
-                              deleteUser(u.id);
-                            }
-                          }}
-                          title="Supprimer l utilisateur"
-                          className="p-1 text-slate-400 hover:text-red-600 rounded-lg hover:bg-slate-100"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      {/* User Info */}
+                      <h4 className="font-bold text-xs text-slate-900 truncate">{u.name}</h4>
+                      <p className="text-[11px] text-slate-500 truncate font-mono">{u.email}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{u.department}</p>
+
+                      {/* Suspension Reason Warning */}
+                      {isSuspended && u.suspensionReason && (
+                        <div className="mt-2 p-2 rounded-lg bg-rose-100/80 border border-rose-200 text-rose-900 text-[10px] flex items-start gap-1.5">
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold block">Motif de coupure :</span>
+                            <span>{u.suspensionReason}</span>
+                          </div>
+                        </div>
                       )}
+
+                      {/* Password Info */}
+                      <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex items-center justify-between text-[10px]">
+                        <span className="text-slate-500 flex items-center gap-1">
+                          <Lock className="w-3 h-3 text-slate-400" />
+                          Mot de passe :
+                        </span>
+                        <span className="font-mono font-semibold text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                          {hasPassword ? '••••••••' : 'Non défini'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Actions and Deactivation Toggle */}
+                    <div className="mt-3 pt-2.5 border-t border-slate-200/80 space-y-2">
+                      {/* Sub-admin direct suspension toggle */}
+                      {(isSuperAdmin || canManageUsers) && isSousAdmin && (
+                        <div>
+                          {isSuspended ? (
+                            <button
+                              type="button"
+                              onClick={() => handleReactivateUser(u)}
+                              className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                            >
+                              <Power className="w-3.5 h-3.5" />
+                              <span>Réactiver le Sous-Admin</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSuspendModal(u)}
+                              className="w-full py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                            >
+                              <PowerOff className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Désactiver / Couper l Accès</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between text-xs">
+                        <button
+                          onClick={() => setCurrentUser(u)}
+                          disabled={isCurrent}
+                          className={`font-semibold text-[11px] ${
+                            isCurrent ? 'text-emerald-700 font-bold' : 'text-blue-600 hover:underline'
+                          }`}
+                        >
+                          {isCurrent ? '✓ Connecté Actuellement' : 'Basculer vers ce compte'}
+                        </button>
+
+                        <div className="flex items-center gap-1">
+                          {(canManageUsers || isCurrent) && (
+                            <button
+                              onClick={() => handleOpenUserModal(u)}
+                              title="Modifier utilisateur, quota ou licence"
+                              className="p-1.5 text-slate-500 hover:text-blue-600 rounded-lg hover:bg-slate-100"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {canManageUsers && users.length > 1 && !isCurrent && !isSuper && (
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Supprimer définitivement le compte ${u.name} ?`)) {
+                                  deleteUser(u.id);
+                                }
+                              }}
+                              title="Supprimer l utilisateur"
+                              className="p-1.5 text-slate-500 hover:text-red-600 rounded-lg hover:bg-slate-100"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         </div>
       )}
@@ -1064,49 +1428,118 @@ export const AdminDataView: React.FC = () => {
       {activeTab === 'backup' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-6 space-y-6">
           <div>
-            <h3 className="font-bold text-sm text-slate-900">Sauvegarde, Cloud Firebase & Export Windows (.EXE)</h3>
+            <h3 className="font-bold text-sm text-slate-900">Sauvegarde, Cloud Supabase & Bases de Données</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Synchronisation Cloud temps réel, export JSON, restauration et compilation pour exécutable Windows (.EXE)
+              Synchronisation Supabase (PostgreSQL), Cloud SQL, Firebase Firestore, export JSON et restauration
             </p>
           </div>
 
-          {/* Firebase Cloud Firestore Status Card */}
-          <div className="p-5 rounded-2xl bg-gradient-to-br from-sky-950 via-slate-900 to-sky-950 text-white border border-sky-800/60 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-sky-600 text-white flex items-center justify-center font-black text-xl shadow-md shadow-sky-500/30">
-                <Cloud className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-sky-500/30 text-sky-200 border border-sky-400/20">
-                    Google Cloud Firebase
-                  </span>
-                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/30 text-emerald-300 border border-emerald-400/20 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Synchronisé en Direct
-                  </span>
+          {/* Cloud Databases Status Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Supabase Database Card */}
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-950 via-teal-950 to-slate-900 text-white border border-emerald-800/60 shadow-lg flex flex-col justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-xl shadow-md shadow-emerald-500/30 shrink-0">
+                  <Zap className="w-5 h-5" />
                 </div>
-                <h4 className="text-sm font-black text-white mt-1">
-                  Base de Données Firestore Cloud Activée
-                </h4>
-                <p className="text-xs text-slate-300 mt-0.5">
-                  Projet : <span className="font-mono text-sky-300">credible-drake-hlcf1</span> • Région : <span className="font-mono text-sky-300">europe-west3</span> • Sauvegarde multi-appareils & collaborative
-                </p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/30 text-emerald-200 border border-emerald-400/20">
+                      Supabase Cloud
+                    </span>
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border flex items-center gap-1 ${
+                      supabaseStatus === 'connected'
+                        ? 'bg-emerald-500/30 text-emerald-300 border-emerald-400/20'
+                        : 'bg-slate-700/60 text-slate-300 border-slate-600'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${supabaseStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
+                      {supabaseStatus === 'connected' ? 'Connecté' : 'À configurer'}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-black text-white mt-1 truncate">
+                    Supabase PostgreSQL
+                  </h4>
+                  <p className="text-xs text-emerald-200/80 mt-0.5 line-clamp-2">
+                    Synchronisation automatique et stockage temps réel
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsSupabaseModalOpen(true)}
+                className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-emerald-900/40 transition-all"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Gérer Supabase & Sync</span>
+              </button>
+            </div>
+
+            {/* Cloud SQL PostgreSQL Card */}
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white border border-indigo-800/60 shadow-lg flex flex-col justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black text-xl shadow-md shadow-indigo-500/30 shrink-0">
+                  <Database className="w-6 h-6" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-500/30 text-indigo-200 border border-indigo-400/20">
+                      Cloud SQL
+                    </span>
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border flex items-center gap-1 ${
+                      sqlStatus === 'connected'
+                        ? 'bg-emerald-500/30 text-emerald-300 border-emerald-400/20'
+                        : 'bg-amber-500/30 text-amber-300 border-amber-400/20'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${sqlStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                      {sqlStatus === 'connected' ? 'Actif' : 'En attente'}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-black text-white mt-1">
+                    PostgreSQL & Drizzle
+                  </h4>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Région : <span className="font-mono text-indigo-300">europe-west3</span>
+                  </p>
+                </div>
+              </div>
+              <div className="text-[11px] text-slate-400 bg-slate-800/60 px-3 py-1.5 rounded-lg border border-slate-700 font-mono">
+                ai-studio-a8fb6796
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              {firebaseAuthUser ? (
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-400 block">Compte Google</span>
-                  <span className="text-xs font-bold text-emerald-400">{firebaseAuthUser.email}</span>
+            {/* Firebase Cloud Firestore Card */}
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-sky-950 via-slate-900 to-sky-950 text-white border border-sky-800/60 shadow-lg flex flex-col justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-sky-600 text-white flex items-center justify-center font-black text-xl shadow-md shadow-sky-500/30 shrink-0">
+                  <Cloud className="w-6 h-6" />
                 </div>
-              ) : (
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-sky-500/30 text-sky-200 border border-sky-400/20">
+                      Firebase & Auth
+                    </span>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/30 text-emerald-300 border border-emerald-400/20 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      {firebaseStatus === 'connected' ? 'En Direct' : 'Prêt'}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-black text-white mt-1">
+                    Authentification & Sync
+                  </h4>
+                  <p className="text-xs text-slate-300 mt-0.5 truncate">
+                    {firebaseAuthUser ? firebaseAuthUser.email : 'credible-drake-hlcf1'}
+                  </p>
+                </div>
+              </div>
+
+              {!firebaseAuthUser ? (
                 <button
+                  type="button"
                   onClick={() => signInWithGoogle().catch(console.warn)}
-                  className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-900 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all"
+                  className="w-full py-2 bg-white hover:bg-slate-100 text-slate-900 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow transition-all"
                 >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
                       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -1126,8 +1559,164 @@ export const AdminDataView: React.FC = () => {
                   </svg>
                   <span>Connexion Google</span>
                 </button>
+              ) : (
+                <div className="text-[11px] text-emerald-300 bg-emerald-950/60 px-3 py-1.5 rounded-lg border border-emerald-700/50 font-medium truncate text-center">
+                  Compte Google connecté
+                </div>
               )}
             </div>
+          </div>
+
+          {/* MIGRATION SUPABASE & PURGE SÉCURISÉE FIREBASE MODULE */}
+          <div className="p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-slate-800 text-white shadow-xl space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-400/30">
+                    <Zap className="w-4 h-4" />
+                  </span>
+                  <h4 className="font-bold text-sm text-white">
+                    Transition Supabase Cloud & Purge Sécurisée Firebase
+                  </h4>
+                  {isFirebasePurged && (
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                      Firebase Supprimé
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Enregistrez l intégralité des données dans Supabase (PostgreSQL), puis supprimez les données chez Firebase pour finaliser la bascule exclusive.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-300">
+                  Total : {vehicles.length} véhicules • {fuelExits.length} sorties • {users.length} comptes
+                </span>
+              </div>
+            </div>
+
+            {/* Actions Grid: Step 1 and Step 2 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Step 1: Migrate to Supabase */}
+              <div className="p-5 rounded-xl bg-slate-900/80 border border-emerald-900/60 flex flex-col justify-between gap-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                      Étape 1 : Enregistrement
+                    </span>
+                    {migrationDone && (
+                      <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5" /> Données en sécurité
+                      </span>
+                    )}
+                  </div>
+                  <h5 className="font-bold text-xs text-white">Enregistrer toutes les données dans Supabase</h5>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Écrit et synchronise toutes les tables (profil, véhicules, catégories, sorties, réceptions, utilisateurs et sous-admins) dans la base PostgreSQL Supabase.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleMigrateToSupabase}
+                  disabled={isMigrating}
+                  className={`w-full py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-md ${
+                    isMigrating
+                      ? 'bg-slate-700 text-slate-300 cursor-wait'
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white active:scale-98 shadow-emerald-950'
+                  }`}
+                >
+                  <Zap className={`w-4 h-4 ${isMigrating ? 'animate-spin' : ''}`} />
+                  <span>{isMigrating ? 'Transfert vers Supabase en cours...' : '1. Enregistrer dans Supabase Maintenant'}</span>
+                </button>
+              </div>
+
+              {/* Step 2: Purge Firebase */}
+              <div className={`p-5 rounded-xl border flex flex-col justify-between gap-4 transition-all ${
+                isFirebasePurged
+                  ? 'bg-emerald-950/20 border-emerald-800/40'
+                  : 'bg-slate-900/80 border-rose-900/60'
+              }`}>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${
+                      isFirebasePurged
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30'
+                        : 'bg-rose-500/20 text-rose-300 border-rose-400/30'
+                    }`}>
+                      Étape 2 : Nettoyage Firebase
+                    </span>
+                    {isFirebasePurged && (
+                      <span className="text-[10px] font-bold text-emerald-300 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Purge effectuée
+                      </span>
+                    )}
+                  </div>
+                  <h5 className="font-bold text-xs text-white">Supprimer les données chez Firebase</h5>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {isFirebasePurged
+                      ? 'Les documents Firestore ont déjà été définitivement purgés. Les écritures Firebase sont verrouillées.'
+                      : 'Supprime irréversiblement toutes les collections Firestore pour ne laisser aucune donnée résiduelle chez Firebase.'}
+                  </p>
+                </div>
+
+                {isFirebasePurged ? (
+                  <div className="p-2.5 bg-emerald-900/30 border border-emerald-700/40 rounded-xl text-center text-xs font-semibold text-emerald-300 flex items-center justify-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Firebase vidé : Base 100% active = Supabase</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handlePurgeFirebase}
+                    disabled={isPurgingFirebase}
+                    className={`w-full py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-md ${
+                      isPurgingFirebase
+                        ? 'bg-slate-700 text-slate-300 cursor-wait'
+                        : 'bg-rose-600 hover:bg-rose-500 text-white active:scale-98 shadow-rose-950'
+                    }`}
+                  >
+                    <Trash2 className={`w-4 h-4 ${isPurgingFirebase ? 'animate-spin' : ''}`} />
+                    <span>{isPurgingFirebase ? 'Suppression chez Firebase en cours...' : '2. Supprimer les données chez Firebase'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Migration Real-time Logs Console */}
+            {migrationLogs.length > 0 && (
+              <div className="p-4 rounded-xl bg-black/70 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800 pb-1">
+                  <span className="font-mono font-bold text-emerald-400">Journal de synchronisation Supabase</span>
+                  <span>{migrationLogs.length} opérations</span>
+                </div>
+                <div className="max-h-36 overflow-y-auto space-y-1 font-mono text-[11px]">
+                  {migrationLogs.map((log, idx) => (
+                    <div
+                      key={idx}
+                      className={`${
+                        log.includes('✅') || log.includes('SUCCÈS')
+                          ? 'text-emerald-400 font-bold'
+                          : log.includes('❌') || log.includes('Échec')
+                          ? 'text-rose-400 font-bold'
+                          : 'text-slate-300'
+                      }`}
+                    >
+                      {log}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Purge Success Alert */}
+            {purgeSuccessInfo && (
+              <div className="p-3.5 rounded-xl bg-emerald-900/30 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{purgeSuccessInfo}</span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1491,24 +2080,106 @@ export const AdminDataView: React.FC = () => {
                   <select
                     value={userRole}
                     onChange={(e) => setUserRole(e.target.value as UserRole)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold text-xs"
                   >
-                    <option value="ADMIN">ADMIN (Accès Total)</option>
+                    {isSuperAdmin && (
+                      <option value="SUPER_ADMIN">👑 SUPER_ADMIN (Master OuaradTech)</option>
+                    )}
+                    <option value="SOUS_ADMIN">⭐ SOUS_ADMIN (Client Vente & Quota)</option>
+                    <option value="ADMIN">ADMIN (Accès Total Entreprise)</option>
                     <option value="GESTIONNAIRE">GESTIONNAIRE (Stock & BL)</option>
                     <option value="POMPISTE">POMPISTE (Saisie Sorties)</option>
                     <option value="SUPERVISEUR">SUPERVISEUR (Consultation)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Département</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Département / Chantier</label>
                   <input
                     type="text"
                     value={userDept}
                     onChange={(e) => setUserDept(e.target.value)}
+                    placeholder="ex: Exploitation / Direction"
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl"
                   />
                 </div>
               </div>
+
+              {/* Sous-Admin Licensing Configuration Block */}
+              {userRole === 'SOUS_ADMIN' && (
+                <div className="p-3.5 bg-gradient-to-br from-amber-50/70 via-slate-50 to-amber-50/30 rounded-xl border border-amber-200/90 space-y-3">
+                  <div className="flex items-center gap-2 border-b border-amber-200/60 pb-2">
+                    <Award className="w-4 h-4 text-amber-600" />
+                    <span className="font-bold text-slate-900 text-xs">
+                      Paramètres de Licence Client (Sous-Admin)
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Société Cliente *</label>
+                      <input
+                        type="text"
+                        value={userClientCompanyName}
+                        onChange={(e) => setUserClientCompanyName(e.target.value)}
+                        required={userRole === 'SOUS_ADMIN'}
+                        placeholder="ex: Société BTP Sahara"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Formule de Licence</label>
+                      <select
+                        value={userLicenseType}
+                        onChange={(e) => setUserLicenseType(e.target.value as any)}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold"
+                      >
+                        <option value="STARTER">STARTER (10 véhicules max)</option>
+                        <option value="BUSINESS">BUSINESS (30 véhicules max)</option>
+                        <option value="ENTERPRISE">ENTERPRISE (100 véhicules max)</option>
+                        <option value="SUR_MESURE">SUR MESURE (Illimité)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Quota Max Véhicules</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="1000"
+                        value={userMaxVehicles}
+                        onChange={(e) => setUserMaxVehicles(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Statut Initial Souscription</label>
+                      <select
+                        value={userSubscriptionStatus}
+                        onChange={(e) => setUserSubscriptionStatus(e.target.value as any)}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold"
+                      >
+                        <option value="ACTIF">✓ ACTIF (Accès Ouvert)</option>
+                        <option value="SUSPENDU">⛔ SUSPENDU (Accès Coupé)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {userSubscriptionStatus === 'SUSPENDU' && (
+                    <div>
+                      <label className="block font-semibold text-rose-700 mb-1">Motif de la coupure</label>
+                      <input
+                        type="text"
+                        value={userSuspensionReason}
+                        onChange={(e) => setUserSuspensionReason(e.target.value)}
+                        placeholder="ex: Facture impayée du mois de mars..."
+                        className="w-full px-3 py-2 bg-rose-50 border border-rose-300 rounded-xl text-rose-900"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Password Section */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
@@ -1567,6 +2238,74 @@ export const AdminDataView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Suspend / Deactivate Sous-Admin Modal */}
+      {isSuspendModalOpen && userToSuspend && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-rose-200 max-w-md w-full p-6 space-y-4 text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-rose-600 font-bold text-sm">
+                <PowerOff className="w-4 h-4" />
+                <span>Désactiver le Sous-Admin Client</span>
+              </div>
+              <button
+                onClick={() => {
+                  setIsSuspendModalOpen(false);
+                  setUserToSuspend(null);
+                }}
+                className="text-slate-400 hover:text-slate-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 space-y-1">
+              <p className="font-bold">
+                Êtes-vous sûr de vouloir couper l accès pour {userToSuspend.name} ?
+              </p>
+              <p className="text-[11px] text-rose-700">
+                Société : <span className="font-semibold">{userToSuspend.clientCompanyName || userToSuspend.name}</span> ({userToSuspend.email})
+              </p>
+              <p className="text-[10px] text-rose-600 mt-1">
+                Une fois désactivé, le sous-admin et ses opérateurs ne pourront plus saisir de sorties ni accéder au stock.
+              </p>
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Motif de la suspension (Visible dans l interface) *
+              </label>
+              <input
+                type="text"
+                value={suspendReasonInput}
+                onChange={(e) => setSuspendReasonInput(e.target.value)}
+                placeholder="ex: Facture impayée, Période d essai terminée..."
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-500 outline-hidden"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSuspendModalOpen(false);
+                  setUserToSuspend(null);
+                }}
+                className="px-4 py-2 border border-slate-300 rounded-xl font-medium"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSuspend}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs transition-colors"
+              >
+                Confirmer la Suspension
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1701,6 +2440,12 @@ export const AdminDataView: React.FC = () => {
       <CompanySetupModal
         isOpen={isCompanyModalOpen}
         onClose={() => setIsCompanyModalOpen(false)}
+      />
+
+      {/* Supabase Setup / Configuration & Migration Modal */}
+      <SupabaseSetupModal
+        isOpen={isSupabaseModalOpen}
+        onClose={() => setIsSupabaseModalOpen(false)}
       />
     </div>
   );

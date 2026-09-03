@@ -92,7 +92,7 @@ service cloud.firestore {
       return data.id is string && isValidId(data.id) &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
              data.email is string && data.email.size() > 0 && data.email.size() <= 100 &&
-             data.role in ['ADMIN', 'GESTIONNAIRE', 'SUPERVISEUR', 'POMPISTE'];
+             data.role in ['SUPER_ADMIN', 'SOUS_ADMIN', 'ADMIN', 'GESTIONNAIRE', 'SUPERVISEUR', 'POMPISTE'];
     }
 
     function isValidFuelExit(data) {
@@ -127,7 +127,7 @@ service cloud.firestore {
       allow get, list: if true;
       allow create, update: if (settingId == 'company' && isValidCompanyProfile(incoming())) ||
                                (settingId == 'stockConfig' && isValidStockConfig(incoming()));
-      allow delete: if isAdmin();
+      allow delete: if true;
     }
 
     // --- Stock Adjustments ---

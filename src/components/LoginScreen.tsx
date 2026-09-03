@@ -26,6 +26,16 @@ interface LoginScreenProps {
 }
 
 const ROLE_BADGES: Record<UserRole, { label: string; color: string; desc: string }> = {
+  SUPER_ADMIN: {
+    label: 'Super Administrateur',
+    color: 'bg-purple-600/15 text-purple-800 border-purple-300 font-black',
+    desc: 'Accès Master Propriétaire (OuaradTech), vente sous-admins & purge cloud',
+  },
+  SOUS_ADMIN: {
+    label: 'Sous-Admin (Client)',
+    color: 'bg-amber-500/15 text-amber-800 border-amber-300 font-bold',
+    desc: 'Accès Client sous licence : gestion autonome de son parc et de son stock',
+  },
   ADMIN: {
     label: 'Administrateur',
     color: 'bg-red-500/10 text-red-700 border-red-200',

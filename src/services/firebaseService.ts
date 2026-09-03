@@ -401,4 +401,66 @@ export const FirebaseService = {
       console.warn('Firebase initial sync note:', err);
     }
   },
+
+  // Purge & Supprimer Définitivement toutes les données chez Firebase Firestore
+  async purgeAllFirestoreData(): Promise<{
+    success: boolean;
+    deletedCount: number;
+    details: { [col: string]: number };
+    error?: string;
+  }> {
+    const collectionsToPurge = [
+      'vehicles',
+      'categories',
+      'departments',
+      'suppliers',
+      'users',
+      'fuelExits',
+      'fuelDeliveries',
+      'stockAdjustments',
+    ];
+
+    let totalDeleted = 0;
+    const details: { [col: string]: number } = {};
+
+    try {
+      // 1. Delete all documents in main collections
+      for (const colName of collectionsToPurge) {
+        try {
+          const snap = await getDocs(collection(db, colName));
+          details[colName] = snap.docs.length;
+          for (const d of snap.docs) {
+            await deleteDoc(d.ref);
+            totalDeleted++;
+          }
+        } catch (err) {
+          console.warn(`Erreur lors de la suppression de la collection Firebase ${colName}:`, err);
+        }
+      }
+
+      // 2. Delete settings documents
+      try {
+        await deleteDoc(doc(db, 'settings', 'company'));
+        totalDeleted++;
+        details['settings_company'] = 1;
+      } catch (err) {}
+
+      try {
+        await deleteDoc(doc(db, 'settings', 'stockConfig'));
+        totalDeleted++;
+        details['settings_stockConfig'] = 1;
+      } catch (err) {}
+
+      console.log(`Purge Firebase terminée avec succès : ${totalDeleted} documents supprimés.`);
+      return { success: true, deletedCount: totalDeleted, details };
+    } catch (err: any) {
+      console.error('Erreur globale lors de la purge Firebase:', err);
+      return {
+        success: false,
+        deletedCount: totalDeleted,
+        details,
+        error: err?.message || 'Erreur lors de la suppression des données Firebase',
+      };
+    }
+  },
 };
