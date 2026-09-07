@@ -152,3 +152,41 @@ export interface FilterOptions {
   month: string; // "YYYY-MM" or "ALL"
   searchQuery: string;
 }
+
+export type MaintenanceServiceType =
+  | 'VIDANGE'
+  | 'FILTRES'
+  | 'FREINAGE'
+  | 'PNEUMATIQUES'
+  | 'REVISION'
+  | 'CONTROLE_TECHNIQUE'
+  | 'DISTRIBUTION'
+  | 'BATTERIE'
+  | 'SUSPENSION'
+  | 'CLIMATISATION'
+  | 'REPARATION_MECANIQUE'
+  | 'LAVAGE_NETTOYAGE'
+  | 'AUTRE';
+
+export type MaintenanceStatus = 'PLANIFIE' | 'EN_COURS' | 'TERMINE' | 'ANNULE';
+
+export interface VehicleMaintenance {
+  id: string;
+  maintenanceNumber: string; // e.g. "ENT-2026-001"
+  vehicleId: string;
+  serviceType: MaintenanceServiceType;
+  title: string; // e.g. "Vidange moteur 15W40 + Filtres à huile et gasoil"
+  date: string; // YYYY-MM-DD
+  time?: string; // HH:mm
+  currentReading: number; // KM or Hours when serviced
+  nextDueReading?: number; // Next service at KM/Hours (e.g. 135 000 km)
+  nextDueDate?: string; // Next service date (e.g. YYYY-MM-DD)
+  cost: number; // Total cost in currency (e.g. € or DZD)
+  provider: string; // Garage / Atelier interne / Concessionnaire
+  invoiceNumber?: string; // N° Facture / BL / Devis
+  technicianName?: string; // Nom mécanicien / chef atelier
+  status: MaintenanceStatus;
+  partsReplaced?: string; // Pièces et consommables (ex: 20L Huile 15W40, 1x Filtre gasoil, Plaquettes AV)
+  notes?: string; // Observations, diagnostic, préconisations
+  createdAt: string;
+}

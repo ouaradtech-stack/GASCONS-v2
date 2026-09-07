@@ -34,6 +34,7 @@ import {
   Upload,
   UserCheck,
   Users,
+  Wrench,
   X,
   Zap,
 } from 'lucide-react';
@@ -50,6 +51,7 @@ import {
 import { CompanySetupModal } from './CompanySetupModal';
 import { SupabaseSetupModal } from './SupabaseSetupModal';
 import { SupabaseService } from '../services/supabaseService';
+import { VehicleMaintenanceView } from './VehicleMaintenanceView';
 
 export const AdminDataView: React.FC = () => {
   const {
@@ -94,9 +96,10 @@ export const AdminDataView: React.FC = () => {
     supabaseStatus,
     firebaseAuthUser,
     signInWithGoogle,
+    vehicleMaintenances,
   } = useGascons();
 
-  const [activeTab, setActiveTab] = useState<'vehicles' | 'categories' | 'users' | 'departments' | 'suppliers' | 'company' | 'backup'>('vehicles');
+  const [activeTab, setActiveTab] = useState<'vehicles' | 'maintenance' | 'categories' | 'users' | 'departments' | 'suppliers' | 'company' | 'backup'>('vehicles');
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
@@ -686,6 +689,18 @@ export const AdminDataView: React.FC = () => {
         </button>
 
         <button
+          onClick={() => setActiveTab('maintenance')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTab === 'maintenance'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <Wrench className="w-4 h-4 text-amber-500" />
+          Entretien & Maintenance ({vehicleMaintenances.length})
+        </button>
+
+        <button
           onClick={() => setActiveTab('categories')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
             activeTab === 'categories'
@@ -829,8 +844,16 @@ export const AdminDataView: React.FC = () => {
                       <td className="px-3 py-2.5 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
+                            onClick={() => setActiveTab('maintenance')}
+                            className="p-1 rounded-lg text-amber-600 hover:bg-amber-50"
+                            title="Voir et gérer les entretiens de la flotte"
+                          >
+                            <Wrench className="w-3.5 h-3.5" />
+                          </button>
+                          <button
                             onClick={() => handleOpenVehicleModal(v)}
                             className="p-1 rounded-lg text-blue-600 hover:bg-blue-50"
+                            title="Modifier les informations du véhicule"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
@@ -842,6 +865,7 @@ export const AdminDataView: React.FC = () => {
                               }
                             }}
                             className="p-1 rounded-lg text-red-600 hover:bg-red-50"
+                            title="Supprimer ce véhicule"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -856,7 +880,10 @@ export const AdminDataView: React.FC = () => {
         </div>
       )}
 
-      {/* 2. CATEGORIES TAB */}
+      {/* 2. MAINTENANCE TAB */}
+      {activeTab === 'maintenance' && <VehicleMaintenanceView />}
+
+      {/* 3. CATEGORIES TAB */}
       {activeTab === 'categories' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
           <div className="flex items-center justify-between">

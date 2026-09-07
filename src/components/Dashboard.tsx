@@ -20,6 +20,7 @@ import {
   TrendingUp,
   Truck,
   Users,
+  Wrench,
 } from 'lucide-react';
 import {
   Area,
@@ -121,6 +122,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectVouche
     getVehicleById,
     getCategoryById,
     getDepartmentById,
+    vehicleMaintenances,
+    companyProfile,
   } = useGascons();
 
   const [hoveredDeptIndex, setHoveredDeptIndex] = useState<number | null>(null);
@@ -316,8 +319,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectVouche
         </div>
       ) : null}
 
-      {/* Top 4 KPI Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Top 5 KPI Metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
         {/* Card 1: Cuve Stock Actuel */}
         <div id="kpi-card-stock" className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
           <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
@@ -422,6 +425,31 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectVouche
             </button>
           </div>
         </div>
+
+        {/* Card 5: Entretien & Maintenance Flotte */}
+        <div id="kpi-card-maintenance" className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Entretien & Atelier</span>
+            <span className="p-2 rounded-xl bg-amber-50 text-amber-600">
+              <Wrench className="w-4 h-4" />
+            </span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-black text-slate-900 font-mono tracking-tight">
+              {vehicleMaintenances.reduce((s, m) => s + (Number(m.cost) || 0), 0).toLocaleString('fr-FR')}
+            </span>
+            <span className="text-xs font-bold text-slate-500">{companyProfile.currency || '€'}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100">
+            <span>{vehicleMaintenances.length} interventions</span>
+            <button
+              onClick={() => onNavigate('maintenance')}
+              className="text-amber-600 hover:text-amber-800 font-semibold text-[11px] flex items-center gap-0.5 cursor-pointer"
+            >
+              Atelier →
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Quick Action Strip */}
@@ -429,10 +457,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectVouche
         <div className="space-y-1 text-center md:text-left">
           <h3 className="font-black text-base flex items-center justify-center md:justify-start gap-2">
             <Fuel className="w-5 h-5 text-amber-400" />
-            Opérations Rapides de Carburant
+            Opérations Rapides de Carburant & Flotte
           </h3>
           <p className="text-xs text-blue-200">
-            Enregistrez une distribution de gasoil avec signature du demandeur ou réceptionnez un bon de livraison.
+            Enregistrez une distribution de gasoil avec signature, réceptionnez un bon de livraison ou suivez les révisions.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
@@ -451,6 +479,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectVouche
           >
             <Truck className="w-4 h-4 text-emerald-400" />
             Réceptionner Livraison
+          </button>
+          <button
+            onClick={() => onNavigate('maintenance')}
+            id="dash-quick-maintenance-btn"
+            className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold border border-white/20 transition-colors cursor-pointer"
+          >
+            <Wrench className="w-4 h-4 text-amber-400" />
+            Entretien Flotte
           </button>
           <button
             onClick={() => onNavigate('rapports')}

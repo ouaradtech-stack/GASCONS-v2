@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  Eye,
+  EyeOff,
   Fuel,
   Gauge,
   Key,
@@ -74,6 +76,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
   const [loginMode, setLoginMode] = useState<'cards' | 'email'>('cards');
   const [emailInput, setEmailInput] = useState<string>('');
   const [customPasswordInput, setCustomPasswordInput] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [showCustomPassword, setShowCustomPassword] = useState<boolean>(false);
 
   // Handle Quick Profile Login
   const handleProfileLogin = (e: React.FormEvent) => {
@@ -101,12 +105,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
   const handleDirectCardSelect = (user: User) => {
     setSelectedUser(user);
     setErrorMessage('');
-    // If user has default password, prefill it for convenience
-    if (user.password) {
-      setPasswordInput(user.password);
-    } else {
-      setPasswordInput('');
-    }
+    // Do not prefill password - keep masked and empty
+    setPasswordInput('');
   };
 
   // Handle Standard Email/Password Form Login
@@ -343,24 +343,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
                 {/* Password / PIN input */}
                 {selectedUser && (
                   <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <label className="font-semibold text-slate-300 flex items-center gap-1.5">
-                        <Key className="w-3.5 h-3.5 text-amber-400" />
-                        Code PIN / Mot de passe :
-                      </label>
-                      {selectedUser.password && (
-                        <span className="text-[11px] text-slate-400 font-mono">
-                          (Défaut: <strong className="text-amber-400">{selectedUser.password}</strong>)
-                        </span>
-                      )}
+                    <label className="block text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                      <Key className="w-3.5 h-3.5 text-amber-400" />
+                      Code PIN / Mot de passe :
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={passwordInput}
+                        onChange={(e) => setPasswordInput(e.target.value)}
+                        placeholder="Entrez votre mot de passe ou PIN..."
+                        className="w-full pl-4 pr-11 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono transition-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 p-0.5 cursor-pointer"
+                        title={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
-                    <input
-                      type="password"
-                      value={passwordInput}
-                      onChange={(e) => setPasswordInput(e.target.value)}
-                      placeholder="Entrez votre mot de passe ou PIN..."
-                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono transition-all"
-                    />
                   </div>
                 )}
 
@@ -398,13 +401,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
                   </label>
                   <div className="relative">
                     <input
-                      type="password"
+                      type={showCustomPassword ? 'text' : 'password'}
                       value={customPasswordInput}
                       onChange={(e) => setCustomPasswordInput(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono transition-all"
+                      className="w-full pl-10 pr-11 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono transition-all"
                     />
                     <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomPassword((prev) => !prev)}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 p-0.5 cursor-pointer"
+                      title={showCustomPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                    >
+                      {showCustomPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
                   </div>
                 </div>
 

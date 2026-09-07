@@ -16,6 +16,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { Navbar } from './components/Navbar';
 import { ReportsExportView } from './components/ReportsExportView';
 import { StockManagementView } from './components/StockManagementView';
+import { VehicleMaintenanceView } from './components/VehicleMaintenanceView';
 import { VoucherModal } from './components/VoucherModal';
 import { GasconsProvider, useGascons } from './context/GasconsContext';
 import { FuelExit } from './types';
@@ -129,6 +130,8 @@ function GasconsApp() {
         {currentTab === 'livraisons' && <FuelDeliveryView />}
 
         {currentTab === 'stock' && <StockManagementView />}
+
+        {currentTab === 'maintenance' && <VehicleMaintenanceView />}
 
         {currentTab === 'rapports' && <ReportsExportView />}
 

@@ -18,8 +18,8 @@ import {
   Shield,
   Truck,
   User,
+  Wrench,
   X,
-  Zap,
 } from 'lucide-react';
 import { useGascons } from '../context/GasconsContext';
 
@@ -39,13 +39,13 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
     users,
     setCurrentUser,
     firebaseStatus,
-    supabaseStatus,
     firebaseAuthUser,
     signInWithGoogle,
     signOutFirebase,
     logout,
     isSuperAdmin,
     isFirebasePurged,
+    vehicleMaintenances,
   } = useGascons();
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -68,6 +68,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
     { id: 'sorties', label: 'Sorties Gasoil', icon: Fuel },
     { id: 'livraisons', label: 'Livraisons Fournisseurs', icon: Truck },
     { id: 'stock', label: 'Gestion Stock & Cuves', icon: Gauge },
+    { id: 'maintenance', label: 'Entretien & Maintenance', icon: Wrench },
     { id: 'rapports', label: 'Rapports & Export', icon: Layers },
     { id: 'base-donnees', label: 'Base de Données', icon: Database },
   ];
@@ -130,23 +131,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
             </nav>
           </div>
 
-          {/* Right Area: Tank Status Badge + Supabase / Firebase Sync Badge + Quick Action + User Selector */}
+          {/* Right Area: Tank Status Badge + Quick Action + User Selector */}
           <div className="flex items-center gap-2.5 sm:gap-3">
-            {/* Supabase Status Badge */}
-            <button
-              onClick={() => onNavigate('base-donnees')}
-              className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-medium transition-all ${
-                supabaseStatus === 'connected'
-                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300 hover:border-emerald-400'
-                  : 'bg-slate-800/80 border-slate-700/80 text-slate-400 hover:text-slate-200 hover:border-slate-600'
-              }`}
-              title={supabaseStatus === 'connected' ? 'Base Supabase connectée en temps réel' : 'Cliquer pour configurer Supabase'}
-            >
-              <Zap className={`w-3.5 h-3.5 ${supabaseStatus === 'connected' ? 'text-emerald-400' : 'text-slate-400'}`} />
-              <span className={`w-1.5 h-1.5 rounded-full ${supabaseStatus === 'connected' ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`} />
-              <span className="font-semibold">{supabaseStatus === 'connected' ? 'Supabase' : 'Supabase (Sync)'}</span>
-            </button>
-
             {/* Quick Tank Gauge Indicator */}
             <button
               onClick={() => onNavigate('stock')}

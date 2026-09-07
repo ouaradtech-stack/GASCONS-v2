@@ -7,6 +7,7 @@ import {
   initialDeliveries,
   initialDepartments,
   initialFuelExits,
+  initialMaintenances,
   initialStockConfig,
   initialSuppliers,
   initialUsers,
@@ -27,6 +28,7 @@ import {
   User,
   Vehicle,
   VehicleCategory,
+  VehicleMaintenance,
 } from '../types';
 
 export type FirebaseSyncStatus = 'connecting' | 'connected' | 'offline' | 'error';
@@ -110,6 +112,14 @@ interface GasconsContextType {
   updateFuelDelivery: (id: string, updates: Partial<FuelDelivery>) => void;
   deleteFuelDelivery: (id: string) => void;
 
+  // Vehicle Maintenances
+  vehicleMaintenances: VehicleMaintenance[];
+  addVehicleMaintenance: (maint: Omit<VehicleMaintenance, 'id' | 'createdAt' | 'maintenanceNumber'>) => VehicleMaintenance;
+  updateVehicleMaintenance: (id: string, updates: Partial<VehicleMaintenance>) => void;
+  deleteVehicleMaintenance: (id: string) => void;
+  getMaintenancesByVehicleId: (vehicleId: string) => VehicleMaintenance[];
+  totalMaintenanceCost: number;
+
   // Helpers
   getVehicleById: (id: string) => Vehicle | undefined;
   getCategoryById: (id: string) => VehicleCategory | undefined;
@@ -135,6 +145,7 @@ const STORAGE_KEYS = {
   CURRENT_USER: 'gascons_current_user_v2',
   FUEL_EXITS: 'gascons_fuel_exits_v1',
   FUEL_DELIVERIES: 'gascons_fuel_deliveries_v1',
+  VEHICLE_MAINTENANCES: 'gascons_vehicle_maintenances_v1',
 };
 
 const GasconsContext = createContext<GasconsContextType | undefined>(undefined);
@@ -228,6 +239,11 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [fuelDeliveries, setFuelDeliveries] = useState<FuelDelivery[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.FUEL_DELIVERIES);
     return saved ? JSON.parse(saved) : initialDeliveries;
+  });
+
+  const [vehicleMaintenances, setVehicleMaintenances] = useState<VehicleMaintenance[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.VEHICLE_MAINTENANCES);
+    return saved ? JSON.parse(saved) : initialMaintenances;
   });
 
   // Flag indicating if user purged all data from Firebase Firestore
@@ -441,6 +457,10 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.FUEL_DELIVERIES, JSON.stringify(fuelDeliveries));
   }, [fuelDeliveries]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.VEHICLE_MAINTENANCES, JSON.stringify(vehicleMaintenances));
+  }, [vehicleMaintenances]);
 
   // Google Login & Logout Handlers
   const signInWithGoogle = async () => {
@@ -964,6 +984,74 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // Vehicle Maintenance Operations
+  const totalMaintenanceCost = vehicleMaintenances.reduce(
+    (sum, m) => sum + (Number(m.cost) || 0),
+    0
+  );
+
+  const getMaintenancesByVehicleId = (vehicleId: string) => {
+    return vehicleMaintenances.filter((m) => m.vehicleId === vehicleId);
+  };
+
+  const addVehicleMaintenance = (
+    maint: Omit<VehicleMaintenance, 'id' | 'createdAt' | 'maintenanceNumber'>
+  ): VehicleMaintenance => {
+    const count = vehicleMaintenances.length + 1;
+    const padCount = String(count).padStart(4, '0');
+    const newMaint: VehicleMaintenance = {
+      ...maint,
+      id: `maint-${Date.now()}`,
+      maintenanceNumber: `ENT-${new Date().getFullYear()}-${padCount}`,
+      createdAt: new Date().toISOString(),
+    };
+
+    setVehicleMaintenances((prev) => [newMaint, ...prev]);
+
+    // If odometer reading is higher than vehicle's current reading, update it
+    if (newMaint.currentReading > 0) {
+      const veh = getVehicleById(newMaint.vehicleId);
+      if (veh && newMaint.currentReading > (veh.currentReading || 0)) {
+        updateVehicle(veh.id, { currentReading: newMaint.currentReading });
+      }
+    }
+
+    // Auto-update vehicle status if under maintenance
+    if (newMaint.status === 'EN_COURS') {
+      updateVehicle(newMaint.vehicleId, { status: 'EN_MAINTENANCE' });
+    } else if (newMaint.status === 'TERMINE') {
+      const veh = getVehicleById(newMaint.vehicleId);
+      if (veh && veh.status === 'EN_MAINTENANCE') {
+        updateVehicle(veh.id, { status: 'ACTIF' });
+      }
+    }
+
+    return newMaint;
+  };
+
+  const updateVehicleMaintenance = (id: string, updates: Partial<VehicleMaintenance>) => {
+    setVehicleMaintenances((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const merged: VehicleMaintenance = { ...m, ...updates };
+
+        if (updates.status === 'EN_COURS') {
+          updateVehicle(merged.vehicleId, { status: 'EN_MAINTENANCE' });
+        } else if (updates.status === 'TERMINE') {
+          const veh = getVehicleById(merged.vehicleId);
+          if (veh && veh.status === 'EN_MAINTENANCE') {
+            updateVehicle(veh.id, { status: 'ACTIF' });
+          }
+        }
+        return merged;
+      })
+    );
+  };
+
+  const deleteVehicleMaintenance = (id: string) => {
+    setVehicleMaintenances((prev) => prev.filter((m) => m.id !== id));
+  };
+
   // Purge Firebase Data permanently
   const purgeFirebaseData = async (): Promise<{ success: boolean; count: number; error?: string }> => {
     try {
@@ -994,6 +1082,7 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentUser(initialUsers[0]);
     setFuelExits(initialFuelExits);
     setFuelDeliveries(initialDeliveries);
+    setVehicleMaintenances(initialMaintenances);
   };
 
   const exportDatabaseJSON = () => {
@@ -1010,6 +1099,7 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       users,
       fuelExits,
       fuelDeliveries,
+      vehicleMaintenances,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -1030,6 +1120,7 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (data.users) setUsers(data.users);
       if (data.fuelExits) setFuelExits(data.fuelExits);
       if (data.fuelDeliveries) setFuelDeliveries(data.fuelDeliveries);
+      if (data.vehicleMaintenances) setVehicleMaintenances(data.vehicleMaintenances);
       return true;
     } catch {
       return false;
@@ -1098,6 +1189,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addFuelDelivery,
         updateFuelDelivery,
         deleteFuelDelivery,
+        vehicleMaintenances,
+        addVehicleMaintenance,
+        updateVehicleMaintenance,
+        deleteVehicleMaintenance,
+        getMaintenancesByVehicleId,
+        totalMaintenanceCost,
         getVehicleById,
         getCategoryById,
         getDepartmentById,

@@ -1,4 +1,4 @@
-import { CompanyProfile, Department, FuelDelivery, FuelExit, StockConfig, Supplier, User, Vehicle, VehicleCategory } from './types';
+import { CompanyProfile, Department, FuelDelivery, FuelExit, StockConfig, Supplier, User, Vehicle, VehicleCategory, VehicleMaintenance } from './types';
 
 export const initialCompanyProfile: CompanyProfile = {
   isConfigured: false, // Prompt on startup
@@ -660,3 +660,127 @@ export const initialFuelExits: FuelExit[] = [
     createdAt: '2026-08-23T10:10:00Z',
   },
 ];
+
+export const initialMaintenances: VehicleMaintenance[] = [
+  {
+    id: 'maint-1',
+    maintenanceNumber: 'ENT-2026-0001',
+    vehicleId: 'veh-1', // Mercedes-Benz Actros 3340
+    serviceType: 'VIDANGE',
+    title: 'Vidange Moteur 120 000 km & Remplacement Filtres',
+    date: '2026-07-15',
+    time: '08:30',
+    currentReading: 120000,
+    nextDueReading: 130000,
+    nextDueDate: '2026-11-15',
+    cost: 480,
+    provider: 'Atelier Central Gascons',
+    invoiceNumber: 'FAC-INT-094',
+    technicianName: 'Khaled Bouzid',
+    status: 'TERMINE',
+    partsReplaced: 'Huile Total Rubia 15W40 (32L), Filtre à huile Mann, Filtre à gasoil décanteur',
+    notes: 'Contrôle des niveaux et graissage complet sellette et essieux effectués sans anomalie.',
+    createdAt: '2026-07-15T08:30:00Z',
+  },
+  {
+    id: 'maint-2',
+    maintenanceNumber: 'ENT-2026-0002',
+    vehicleId: 'veh-1', // Mercedes-Benz Actros 3340
+    serviceType: 'FREINAGE',
+    title: 'Remplacement Garnitures & Plaquettes Essieu Avant',
+    date: '2026-08-05',
+    time: '14:00',
+    currentReading: 122400,
+    nextDueReading: 150000,
+    nextDueDate: '2027-02-01',
+    cost: 650,
+    provider: 'Garage Poids Lourds BTP',
+    invoiceNumber: 'FAC-PL-2026-44',
+    technicianName: 'Rachid M.',
+    status: 'TERMINE',
+    partsReplaced: 'Jeu de plaquettes de frein avant WVA 29174 + capteurs d usure',
+    notes: 'Disques contrôlés : épaisseur conforme aux tolérances constructeur.',
+    createdAt: '2026-08-05T14:00:00Z',
+  },
+  {
+    id: 'maint-3',
+    maintenanceNumber: 'ENT-2026-0003',
+    vehicleId: 'veh-3', // Pelle Hydraulique CAT 336D (4 820 h)
+    serviceType: 'REVISION',
+    title: 'Révision 4 500 Heures & Vidange Circuit Hydraulique',
+    date: '2026-06-20',
+    time: '09:00',
+    currentReading: 4500,
+    nextDueReading: 5000, // Dans 180h -> Proche !
+    nextDueDate: '2026-09-30',
+    cost: 1250,
+    provider: 'Concessionnaire Bergerat Monnoyeur CAT',
+    invoiceNumber: 'CAT-SRV-8819',
+    technicianName: 'Equipe Mobile CAT',
+    status: 'TERMINE',
+    partsReplaced: 'Huile hydraulique CAT HYDO Advanced 10 (80L), Filtres retour, Filtre pilote',
+    notes: 'Test de pression hydraulique et calibrage des pompes OK. Prochaine vidange moteur à 5 000 h.',
+    createdAt: '2026-06-20T09:00:00Z',
+  },
+  {
+    id: 'maint-4',
+    maintenanceNumber: 'ENT-2026-0004',
+    vehicleId: 'veh-6', // Toyota Hilux 4x4 (78 500 km)
+    serviceType: 'CONTROLE_TECHNIQUE',
+    title: 'Visite Réglementaire & Contrôle Technique Annuel',
+    date: '2026-08-25',
+    time: '10:30',
+    currentReading: 78500,
+    nextDueReading: 90000,
+    nextDueDate: '2026-08-30', // Dépassée ! ALERTE RETARD
+    cost: 85,
+    provider: 'Centre Contrôle Technique Agréé',
+    invoiceNumber: 'CT-2026-0912',
+    technicianName: 'Inspecteur Hamidi',
+    status: 'PLANIFIE',
+    partsReplaced: '',
+    notes: 'Rendez-vous à reprogrammer en urgence pour mise en conformité vignette et assurance.',
+    createdAt: '2026-08-20T11:00:00Z',
+  },
+  {
+    id: 'maint-5',
+    maintenanceNumber: 'ENT-2026-0005',
+    vehicleId: 'veh-4', // Chargeuse Komatsu WA470
+    serviceType: 'PNEUMATIQUES',
+    title: 'Remplacement Train Pneus Génie Civil Avant (26.5R25)',
+    date: '2026-07-28',
+    time: '11:15',
+    currentReading: 3500,
+    nextDueReading: 6500,
+    nextDueDate: '2027-07-01',
+    cost: 3200,
+    provider: 'Michelin BTP Service',
+    invoiceNumber: 'MICH-6632',
+    technicianName: 'Karim Service Pneus',
+    status: 'TERMINE',
+    partsReplaced: '2x Pneus Michelin XHA2 26.5 R25 tubeless',
+    notes: 'Pneus usés recyclés. Pression réglée à 4.5 bars. Écrous resserrés au couple.',
+    createdAt: '2026-07-28T11:15:00Z',
+  },
+  {
+    id: 'maint-6',
+    maintenanceNumber: 'ENT-2026-0006',
+    vehicleId: 'veh-2', // Renault Trucks K440 (98 320 km)
+    serviceType: 'REVISION',
+    title: 'Grande Révision 100 000 km (Moteur + Boîte + Pont)',
+    date: '2026-09-02',
+    time: '08:00',
+    currentReading: 98320,
+    nextDueReading: 115000,
+    nextDueDate: '2027-03-01',
+    cost: 1450,
+    provider: 'Renault Trucks Service',
+    invoiceNumber: 'DEV-RT-2026-118',
+    technicianName: 'Chef d Atelier Laurent',
+    status: 'EN_COURS',
+    partsReplaced: 'Kit courroie d accessoire, huiles moteur/boîte/pont, cartouches dessiccateur APM',
+    notes: 'Véhicule immobilisé en atelier. Fin des travaux et essai sur route prévus sous 48h.',
+    createdAt: '2026-09-02T08:00:00Z',
+  },
+];
+
