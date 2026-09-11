@@ -32,7 +32,7 @@ export const MaintenanceOrderModal: React.FC<MaintenanceOrderModalProps> = ({
 
   const vehicle = getVehicleById(maintenance.vehicleId);
   const category = vehicle ? getCategoryById(vehicle.categoryId) : undefined;
-  const currency = companyProfile.currency || '€';
+  const currency = companyProfile.currency || 'DHS';
   const unit = vehicle?.unitType || 'KM';
 
   const handlePrint = () => {
@@ -58,9 +58,10 @@ export const MaintenanceOrderModal: React.FC<MaintenanceOrderModalProps> = ({
           <div className="flex items-center gap-3">
             <button
               onClick={onClose}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold border border-slate-700 hover:border-slate-600 transition-all cursor-pointer"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-blue-600/30 hover:bg-blue-600 text-blue-200 hover:text-white text-xs font-bold border border-blue-500/40 transition-all cursor-pointer shadow-xs"
+              title="Retourner à la liste des entretiens"
             >
-              <ArrowLeft className="w-4 h-4 text-blue-400" />
+              <ArrowLeft className="w-4 h-4 text-blue-300" />
               <span>Retour</span>
             </button>
             <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-400/40 flex items-center justify-center text-blue-400">
@@ -297,6 +298,35 @@ export const MaintenanceOrderModal: React.FC<MaintenanceOrderModalProps> = ({
           {/* Footer note */}
           <div className="text-center text-[10px] text-slate-400 pt-2 border-t border-slate-100">
             {companyProfile.name || 'GASCONS'} • Logiciel de Gestion Gasoil & Maintenance de Flotte
+          </div>
+        </div>
+
+        {/* Bottom Bar Actions with prominent Retour button (Hidden on print) */}
+        <div className="px-6 py-3.5 bg-slate-900 border-t border-slate-800 flex items-center justify-between print:hidden">
+          <button
+            onClick={onClose}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700 hover:border-slate-600 transition-all cursor-pointer shadow-xs"
+            title="Fermer la fiche et retourner à la liste des entretiens"
+          >
+            <ArrowLeft className="w-4 h-4 text-blue-400" />
+            <span>← Retour à la liste</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDownload}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold border border-slate-700 transition-colors cursor-pointer"
+            >
+              <Download className="w-4 h-4 text-blue-400" />
+              <span>Télécharger Fiche (HTML)</span>
+            </button>
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Imprimer / PDF</span>
+            </button>
           </div>
         </div>
       </div>

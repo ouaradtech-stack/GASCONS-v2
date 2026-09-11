@@ -36,7 +36,7 @@ export interface CompanyProfile {
   address?: string;
   city?: string;
   country?: string;
-  currency?: string; // DZD, EUR, FCFA, MAD, USD...
+  currency?: string; // DHS, MAD, EUR, USD, FCFA...
   headerTagline?: string;
   updatedAt?: string;
 }

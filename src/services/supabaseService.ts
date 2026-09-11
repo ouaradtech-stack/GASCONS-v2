@@ -41,7 +41,7 @@ export const SupabaseService = {
         address: data.address || '',
         city: data.city || '',
         country: data.country || '',
-        currency: data.currency || 'DZD',
+        currency: data.currency || 'DHS',
         headerTagline: data.header_tagline || '',
       };
     } catch (err) {
@@ -66,7 +66,7 @@ export const SupabaseService = {
         address: profile.address,
         city: profile.city,
         country: profile.country,
-        currency: profile.currency || 'DZD',
+        currency: profile.currency || 'DHS',
         header_tagline: profile.headerTagline,
         updated_at: new Date().toISOString(),
       };
@@ -684,6 +684,44 @@ export const SupabaseService = {
     } catch (err: any) {
       console.error('Erreur syncAllToSupabase:', err);
       return { success: false, count: 0, error: err?.message || 'Erreur lors de la synchronisation' };
+    }
+  },
+
+  async saveVehiclesBatch(vehiclesList: Vehicle[]): Promise<boolean> {
+    const client = getSupabaseClient();
+    if (!client || vehiclesList.length === 0) return false;
+    try {
+      const payloads = vehiclesList.map((veh) => ({
+        id: veh.id,
+        code: veh.code,
+        plate_number: veh.plateNumber,
+        name: veh.name,
+        category_id: veh.categoryId,
+        department_id: veh.departmentId,
+        tank_capacity: veh.tankCapacity,
+        current_reading: veh.currentReading,
+        unit_type: veh.unitType,
+        assigned_driver: veh.assignedDriver || null,
+        status: veh.status,
+        notes: veh.notes || null,
+      }));
+      const { error } = await client.from('vehicles').upsert(payloads, { onConflict: 'id' });
+      return !error;
+    } catch (err) {
+      console.error('Supabase saveVehiclesBatch exception:', err);
+      return false;
+    }
+  },
+
+  async deleteVehiclesBatch(ids: string[]): Promise<boolean> {
+    const client = getSupabaseClient();
+    if (!client || ids.length === 0) return false;
+    try {
+      const { error } = await client.from('vehicles').delete().in('id', ids);
+      return !error;
+    } catch (err) {
+      console.error('Supabase deleteVehiclesBatch exception:', err);
+      return false;
     }
   },
 };

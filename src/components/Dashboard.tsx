@@ -438,7 +438,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectVouche
             <span className="text-2xl font-black text-slate-900 font-mono tracking-tight">
               {vehicleMaintenances.reduce((s, m) => s + (Number(m.cost) || 0), 0).toLocaleString('fr-FR')}
             </span>
-            <span className="text-xs font-bold text-slate-500">{companyProfile.currency || '€'}</span>
+            <span className="text-xs font-bold text-slate-500">{companyProfile.currency || 'DHS'}</span>
           </div>
           <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100">
             <span>{vehicleMaintenances.length} interventions</span>
@@ -448,6 +448,126 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectVouche
             >
               Atelier →
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION INDICATEUR DE CUVE EN DIRECT (Tableau de Bord - Format Compact) */}
+      <div id="section-tank-indicator-live" className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-blue-50 text-blue-700 rounded-lg border border-blue-100">
+              <Gauge className="w-4 h-4 text-blue-600" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-bold text-sm text-slate-900">
+                  Cuve de Gasoil en Temps Réel
+                </h3>
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    isCriticalStock
+                      ? 'bg-rose-100 text-rose-800 border-rose-300 animate-pulse'
+                      : isLowStock
+                      ? 'bg-amber-100 text-amber-800 border-amber-300'
+                      : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      isCriticalStock ? 'bg-rose-600' : isLowStock ? 'bg-amber-500' : 'bg-emerald-500'
+                    }`}
+                  />
+                  {isCriticalStock
+                    ? 'Stock Critique'
+                    : isLowStock
+                    ? "Seuil d'Alerte"
+                    : 'Niveau Nominal'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-slate-400" />
+                <span>
+                  {stockConfig.tankName || 'Cuve Principale'} • {stockConfig.location || 'Dépôt Central'}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="flex items-baseline justify-end gap-1 font-mono">
+                <span className="text-lg font-black text-slate-900">
+                  {currentStockLiters.toLocaleString('fr-FR')}
+                </span>
+                <span className="text-[11px] font-semibold text-slate-400">
+                  / {stockConfig.tankCapacity.toLocaleString('fr-FR')} L
+                </span>
+                <span className="text-xs font-bold text-blue-600 ml-1">
+                  ({stockPercentage}%)
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => onNavigate('stock')}
+              className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 border border-slate-200 transition-colors cursor-pointer shrink-0"
+              title="Gérer la cuve et les réapprovisionnements"
+            >
+              <span>Jauge</span>
+              <span>→</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Graphical Horizontal Cylinder Tank - Compact Sleek Bar */}
+        <div className="relative border-2 border-slate-700 bg-slate-100 rounded-xl h-9 overflow-hidden shadow-inner flex flex-col justify-end">
+          {/* Guide ticks */}
+          <div className="absolute inset-0 flex items-center justify-between pointer-events-none px-3 text-[9px] font-mono text-slate-500 z-10 opacity-70">
+            <span>0 L</span>
+            <span className="text-amber-700 font-bold">Alerte: {stockConfig.alertThreshold.toLocaleString('fr-FR')} L</span>
+            <span>Max: {stockConfig.tankCapacity.toLocaleString('fr-FR')} L</span>
+          </div>
+
+          {/* Liquid Fill */}
+          <div
+            className={`h-full bg-gradient-to-r ${
+              isCriticalStock
+                ? 'from-red-600 to-rose-400'
+                : isLowStock
+                ? 'from-amber-500 to-yellow-400'
+                : 'from-blue-600 via-sky-500 to-cyan-400'
+            } transition-all duration-700 relative`}
+            style={{ width: `${Math.min(100, Math.max(0, stockPercentage))}%` }}
+          >
+            <div className="absolute top-0 bottom-0 right-0 w-1 bg-white/60 shadow-xs" />
+          </div>
+        </div>
+
+        {/* 4 Bottom Micro-Metrics - Compact Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-[11px]">
+          <div className="bg-slate-50 px-2 py-1 rounded-lg border border-slate-200/80 flex items-center justify-between">
+            <span className="text-slate-500 font-medium">Capacité :</span>
+            <span className="font-mono font-bold text-slate-900">
+              {stockConfig.tankCapacity.toLocaleString('fr-FR')} L
+            </span>
+          </div>
+          <div className="bg-slate-50 px-2 py-1 rounded-lg border border-slate-200/80 flex items-center justify-between">
+            <span className="text-slate-500 font-medium">Volume :</span>
+            <span className="font-mono font-bold text-blue-700">
+              {currentStockLiters.toLocaleString('fr-FR')} L
+            </span>
+          </div>
+          <div className="bg-slate-50 px-2 py-1 rounded-lg border border-slate-200/80 flex items-center justify-between">
+            <span className="text-slate-500 font-medium">Espace libre :</span>
+            <span className="font-mono font-bold text-emerald-700">
+              {Math.max(0, stockConfig.tankCapacity - currentStockLiters).toLocaleString('fr-FR')} L
+            </span>
+          </div>
+          <div className="bg-slate-50 px-2 py-1 rounded-lg border border-slate-200/80 flex items-center justify-between">
+            <span className="text-slate-500 font-medium">Seuil d'alerte :</span>
+            <span className="font-mono font-bold text-amber-700">
+              {stockConfig.alertThreshold.toLocaleString('fr-FR')} L
+            </span>
           </div>
         </div>
       </div>

@@ -236,13 +236,13 @@ export function downloadVoucherHTML(
       border: 1px solid #cbd5e1;
       border-radius: 10px;
       padding: 12px;
-      min-height: 110px;
+      min-height: 155px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
     }
     .sig-img {
-      max-height: 48px;
+      max-height: 80px;
       object-fit: contain;
     }
     .footer {
@@ -336,8 +336,8 @@ export function downloadVoucherHTML(
         </div>
         ${
           exit.signatureDataUrl
-            ? `<div style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 2px; text-align: center;"><img class="sig-img" src="${exit.signatureDataUrl}" alt="Signature" /></div>`
-            : `<div style="font-size: 11px; color: #94a3b8; font-style: italic; border: 1px dashed #cbd5e1; border-radius: 6px; height: 40px; display: flex; align-items: center; justify-content: center;">Signature manuscrite</div>`
+            ? `<div style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px; text-align: center;"><img class="sig-img" src="${exit.signatureDataUrl}" alt="Signature" /></div>`
+            : `<div style="font-size: 11px; color: #94a3b8; font-style: italic; border: 1px dashed #cbd5e1; border-radius: 6px; height: 75px; display: flex; align-items: center; justify-content: center;">Signature manuscrite / Cachet</div>`
         }
       </div>
     </div>
@@ -753,7 +753,7 @@ export function downloadMaintenanceOrderHTML(
   category: VehicleCategory | undefined,
   companyProfile: CompanyProfile
 ) {
-  const currency = companyProfile.currency || '€';
+  const currency = companyProfile.currency || 'DHS';
   const unit = vehicle?.unitType || 'KM';
 
   const statusLabel = {
@@ -926,4 +926,253 @@ export function downloadMaintenanceOrderHTML(
 </html>`;
 
   downloadFile(html, `Ordre_Reparation_${maintenance.maintenanceNumber}_${maintenance.date}.html`, 'text/html;charset=utf-8');
+}
+
+/**
+ * Export vehicles list to CSV (Excel compatible with UTF-8 BOM).
+ */
+export function exportVehiclesToCSV(
+  vehicles: Vehicle[],
+  categories: VehicleCategory[],
+  departments: Department[],
+  filenamePrefix = 'Flotte_Vehicules_Engins'
+) {
+  const headers = [
+    'Code',
+    'Immatriculation',
+    'Désignation / Nom',
+    'Catégorie',
+    'Département',
+    'Unité',
+    'Compteur Actuel',
+    'Capacité Réservoir (L)',
+    'Chauffeur Assigné',
+    'Statut',
+  ];
+
+  const escapeCSV = (val: any) => {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+
+  const rows = vehicles.map((v) => {
+    const cat = categories.find((c) => c.id === v.categoryId);
+    const dept = departments.find((d) => d.id === v.departmentId);
+    return [
+      escapeCSV(v.code),
+      escapeCSV(v.plateNumber),
+      escapeCSV(v.name),
+      escapeCSV(cat ? cat.name : ''),
+      escapeCSV(dept ? dept.name : ''),
+      escapeCSV(v.unitType || 'KM'),
+      escapeCSV(v.currentReading),
+      escapeCSV(v.tankCapacity),
+      escapeCSV(v.assignedDriver || ''),
+      escapeCSV(v.status || 'ACTIF'),
+    ].join(';');
+  });
+
+  const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\r\n');
+  const dateStr = new Date().toISOString().split('T')[0];
+  downloadFile(csvContent, `${filenamePrefix}_${dateStr}.csv`, 'text/csv;charset=utf-8;');
+}
+
+/**
+ * Generate sample CSV template for vehicles and machinery import.
+ */
+export function generateVehicleCSVTemplate(): string {
+  const headers = [
+    'Code',
+    'Immatriculation',
+    'Désignation',
+    'Catégorie',
+    'Département',
+    'Unité (KM ou HEURES)',
+    'Compteur Actuel',
+    'Capacité Réservoir (L)',
+    'Chauffeur Assigné',
+    'Statut (ACTIF ou EN_MAINTENANCE)',
+  ];
+
+  const sampleRows = [
+    ['V-001', '12345-A-26', 'Toyota Hilux 4x4', 'Véhicules Légers', 'Exploitation', 'KM', '145000', '80', 'Rachid Amrani', 'ACTIF'],
+    ['ENG-002', 'E-8890', 'Pelleteuse Caterpillar 320D', 'Engins Lourds', 'Chantier Nord', 'HEURES', '3420', '350', 'Mourad Tazi', 'ACTIF'],
+    ['CAM-003', '45890-B-10', 'Camion Benne Volvo FMX', 'Poids Lourds', 'Logistique', 'KM', '89200', '400', 'Hassan Idrissi', 'ACTIF'],
+  ];
+
+  const escapeCSV = (val: string) => `"${val.replace(/"/g, '""')}"`;
+  const content = '\uFEFF' + [
+    headers.join(';'),
+    ...sampleRows.map((r) => r.map(escapeCSV).join(';')),
+  ].join('\r\n');
+
+  return content;
+}
+
+export interface ParsedVehicleRow {
+  code: string;
+  plateNumber: string;
+  name: string;
+  categoryId: string;
+  departmentId: string;
+  unitType: 'KM' | 'HEURES';
+  currentReading: number;
+  tankCapacity: number;
+  assignedDriver?: string;
+  status: 'ACTIF' | 'EN_MAINTENANCE' | 'HORS_SERVICE';
+}
+
+/**
+ * Parse CSV text into validated Vehicle items.
+ */
+export function parseVehiclesCSV(
+  csvText: string,
+  categories: VehicleCategory[],
+  departments: Department[]
+): { validVehicles: ParsedVehicleRow[]; errors: string[] } {
+  const validVehicles: ParsedVehicleRow[] = [];
+  const errors: string[] = [];
+
+  // Remove BOM if present and clean carriage returns
+  const cleanText = csvText.replace(/^\uFEFF/, '').trim();
+  if (!cleanText) {
+    errors.push('Le fichier est vide.');
+    return { validVehicles, errors };
+  }
+
+  const rawLines = cleanText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (rawLines.length < 2) {
+    errors.push('Le fichier doit comporter une ligne d en-tête et au moins une ligne de données.');
+    return { validVehicles, errors };
+  }
+
+  // Detect delimiter (; or , or \t)
+  const firstLine = rawLines[0];
+  const semicolonCount = (firstLine.match(/;/g) || []).length;
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const tabCount = (firstLine.match(/\t/g) || []).length;
+  let delimiter = ';';
+  if (tabCount > semicolonCount && tabCount > commaCount) delimiter = '\t';
+  else if (commaCount > semicolonCount) delimiter = ',';
+
+  // Helper to split a CSV line respecting quotes
+  const parseLine = (line: string): string[] => {
+    const values: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === delimiter && !inQuotes) {
+        values.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    values.push(current.trim());
+    return values;
+  };
+
+  const headers = parseLine(firstLine).map((h) =>
+    h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  );
+
+  // Column index finders
+  const findIndex = (keywords: string[]) => {
+    return headers.findIndex((h) => keywords.some((k) => h.includes(k)));
+  };
+
+  const codeIdx = findIndex(['code', 'ref', 'identifiant', 'id', 'num', 'numero', 'n°']);
+  const plateIdx = findIndex(['immat', 'plaque', 'matricule', 'serie', 'chassis', 'immatriculation']);
+  const nameIdx = findIndex(['designation', 'nom', 'modele', 'marque', 'vehicule', 'engin', 'description', 'libelle']);
+  const catIdx = findIndex(['cat', 'type', 'genre', 'famille', 'classe']);
+  const deptIdx = findIndex(['dept', 'departement', 'chantier', 'service', 'site', 'affectation', 'projet']);
+  const unitIdx = findIndex(['unite', 'compteur_type', 'km/h', 'unite_compteur']);
+  const readingIdx = findIndex(['compteur', 'index', 'km actuel', 'km', 'heures', 'horometre', 'kilometrage', 'valeur']);
+  const capacityIdx = findIndex(['capacite', 'reservoir', 'volume', 'litres', 'cap']);
+  const driverIdx = findIndex(['chauffeur', 'conducteur', 'operateur', 'conducteur_habituel']);
+  const statusIdx = findIndex(['statut', 'etat', 'stat']);
+
+  const defaultCatId = categories[0]?.id || 'cat-1';
+  const defaultDeptId = departments[0]?.id || 'dept-1';
+
+  for (let i = 1; i < rawLines.length; i++) {
+    const rowNum = i + 1;
+    const cols = parseLine(rawLines[i]);
+    if (cols.length === 0 || cols.every((c) => !c)) continue;
+
+    const plateNumber = (plateIdx !== -1 ? cols[plateIdx] || '' : '').trim();
+    const name = (nameIdx !== -1 ? cols[nameIdx] || '' : '').trim();
+    const rawCode = (codeIdx !== -1 ? cols[codeIdx] || '' : '').trim();
+    const code = rawCode || `V-${Date.now().toString().slice(-4)}${i}`;
+
+    if (!plateNumber && !name && !rawCode) {
+      errors.push(`Ligne ${rowNum} ignorée : Immatriculation, nom ou code manquant.`);
+      continue;
+    }
+
+    const effectivePlate = plateNumber || (rawCode ? `MAT-${rawCode}` : `IMMAT-${i}`);
+    const effectiveName = name || plateNumber || rawCode || `Véhicule ${i}`;
+
+    // Match category
+    let categoryId = defaultCatId;
+    if (catIdx !== -1 && cols[catIdx]) {
+      const catText = cols[catIdx].toLowerCase().trim();
+      const matched = categories.find((c) => c.name.toLowerCase().includes(catText) || catText.includes(c.name.toLowerCase()));
+      if (matched) categoryId = matched.id;
+    }
+
+    // Match department
+    let departmentId = defaultDeptId;
+    if (deptIdx !== -1 && cols[deptIdx]) {
+      const deptText = cols[deptIdx].toLowerCase().trim();
+      const matched = departments.find((d) => d.name.toLowerCase().includes(deptText) || deptText.includes(d.name.toLowerCase()));
+      if (matched) departmentId = matched.id;
+    }
+
+    // Unit
+    let unitType: 'KM' | 'HEURES' = 'KM';
+    if (unitIdx !== -1 && cols[unitIdx]) {
+      const u = cols[unitIdx].toUpperCase();
+      if (u.includes('HEURE') || u === 'H' || u === 'HRS') unitType = 'HEURES';
+    }
+
+    // Reading & Capacity
+    const rawReading = readingIdx !== -1 ? cols[readingIdx]?.replace(/\s/g, '').replace(',', '.') : '0';
+    const rawCapacity = capacityIdx !== -1 ? cols[capacityIdx]?.replace(/\s/g, '').replace(',', '.') : '200';
+    const currentReading = Math.max(0, Number(rawReading) || 0);
+    const tankCapacity = Math.max(10, Number(rawCapacity) || 200);
+
+    // Driver & Status
+    const assignedDriver = driverIdx !== -1 ? cols[driverIdx]?.trim() : undefined;
+    let status: 'ACTIF' | 'EN_MAINTENANCE' | 'HORS_SERVICE' = 'ACTIF';
+    if (statusIdx !== -1 && cols[statusIdx]) {
+      const st = cols[statusIdx].toUpperCase();
+      if (st.includes('MAINT') || st.includes('PANNE') || st.includes('GARAGE')) status = 'EN_MAINTENANCE';
+      else if (st.includes('HORS') || st.includes('REFORME')) status = 'HORS_SERVICE';
+    }
+
+    validVehicles.push({
+      code,
+      plateNumber: effectivePlate,
+      name: effectiveName,
+      categoryId,
+      departmentId,
+      unitType,
+      currentReading,
+      tankCapacity,
+      assignedDriver: assignedDriver || undefined,
+      status,
+    });
+  }
+
+  return { validVehicles, errors };
 }

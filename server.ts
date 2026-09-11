@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import {
   getDbCategories,
@@ -242,6 +243,148 @@ async function startServer() {
       res.json({ success: true, data: user });
     } catch (error: any) {
       console.error('API POST /api/users error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // 10. Local Backup System ("base de donnee" folder)
+  const BACKUP_DIR_NAME = 'base de donnee';
+  const BACKUP_DIR = path.join(process.cwd(), BACKUP_DIR_NAME);
+
+  // Ensure "base de donnee" directory exists
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      console.log(`[Backup] Dossier "${BACKUP_DIR_NAME}" initialisé avec succès.`);
+    }
+  } catch (err) {
+    console.error(`[Backup] Erreur lors de l'initialisation du dossier "${BACKUP_DIR_NAME}":`, err);
+  }
+
+  // POST /api/backup/save-local: Automatically saves snapshot into folder "base de donnee"
+  app.post('/api/backup/save-local', async (req, res) => {
+    try {
+      if (!fs.existsSync(BACKUP_DIR)) {
+        fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      }
+
+      const payload = req.body || {};
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/:/g, '-').replace(/\..+/, '');
+      const dateStr = now.toISOString().slice(0, 10);
+
+      // 1. Latest full database snapshot
+      const latestPath = path.join(BACKUP_DIR, 'gascons_database_latest.json');
+      fs.writeFileSync(latestPath, JSON.stringify(payload, null, 2), 'utf-8');
+
+      // 2. Point-in-time backup snapshot
+      const pointInTimePath = path.join(BACKUP_DIR, `backup_${timestamp}.json`);
+      fs.writeFileSync(pointInTimePath, JSON.stringify(payload, null, 2), 'utf-8');
+
+      // 3. Specialized table files for direct opening / Excel / Python inspection
+      if (Array.isArray(payload.vehicles)) {
+        fs.writeFileSync(
+          path.join(BACKUP_DIR, 'vehicules_engins.json'),
+          JSON.stringify(payload.vehicles, null, 2),
+          'utf-8'
+        );
+
+        // Also generate CSV for vehicles
+        const csvHeader = 'ID;Code;Immatriculation;Designation;CategorieID;DepartementID;CapaciteReservoir;CompteurActuel;Unite;Chauffeur;Statut\n';
+        const csvRows = payload.vehicles.map((v: any) =>
+          `"${v.id || ''}";"${v.code || ''}";"${v.plateNumber || ''}";"${(v.name || '').replace(/"/g, '""')}";"${v.categoryId || ''}";"${v.departmentId || ''}";"${v.tankCapacity || 0}";"${v.currentReading || 0}";"${v.unitType || 'KM'}";"${(v.assignedDriver || '').replace(/"/g, '""')}";"${v.status || 'ACTIF'}"`
+        ).join('\n');
+        fs.writeFileSync(path.join(BACKUP_DIR, 'vehicules_engins.csv'), '\uFEFF' + csvHeader + csvRows, 'utf-8');
+      }
+
+      if (Array.isArray(payload.fuelExits)) {
+        fs.writeFileSync(
+          path.join(BACKUP_DIR, 'sorties_gasoil.json'),
+          JSON.stringify(payload.fuelExits, null, 2),
+          'utf-8'
+        );
+      }
+
+      if (Array.isArray(payload.fuelDeliveries)) {
+        fs.writeFileSync(
+          path.join(BACKUP_DIR, 'receptions_carburant.json'),
+          JSON.stringify(payload.fuelDeliveries, null, 2),
+          'utf-8'
+        );
+      }
+
+      if (Array.isArray(payload.users)) {
+        fs.writeFileSync(
+          path.join(BACKUP_DIR, 'utilisateurs_et_sous_admins.json'),
+          JSON.stringify(payload.users, null, 2),
+          'utf-8'
+        );
+      }
+
+      if (payload.stockConfig) {
+        fs.writeFileSync(
+          path.join(BACKUP_DIR, 'stock_cuve.json'),
+          JSON.stringify(payload.stockConfig, null, 2),
+          'utf-8'
+        );
+      }
+
+      // Keep maximum 30 point-in-time backups to avoid excessive disk growth
+      try {
+        const files = fs.readdirSync(BACKUP_DIR);
+        const backupFiles = files
+          .filter((f) => f.startsWith('backup_') && f.endsWith('.json'))
+          .sort()
+          .reverse();
+        if (backupFiles.length > 30) {
+          backupFiles.slice(30).forEach((oldFile) => {
+            try {
+              fs.unlinkSync(path.join(BACKUP_DIR, oldFile));
+            } catch (_) {}
+          });
+        }
+      } catch (_) {}
+
+      res.json({
+        success: true,
+        message: 'Sauvegarde locale effectuée avec succès dans le dossier "base de donnee"',
+        folder: BACKUP_DIR_NAME,
+        timestamp,
+        date: dateStr,
+      });
+    } catch (error: any) {
+      console.error('API /api/backup/save-local error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // GET /api/backup/status: Status of the "base de donnee" folder
+  app.get('/api/backup/status', (req, res) => {
+    try {
+      if (!fs.existsSync(BACKUP_DIR)) {
+        fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      }
+
+      const files = fs.readdirSync(BACKUP_DIR);
+      const fileStats = files.map((name) => {
+        const filePath = path.join(BACKUP_DIR, name);
+        const stat = fs.statSync(filePath);
+        return {
+          name,
+          size: stat.size,
+          updatedAt: stat.mtime.toISOString(),
+        };
+      });
+
+      res.json({
+        success: true,
+        folder: BACKUP_DIR_NAME,
+        absolutePath: BACKUP_DIR,
+        fileCount: files.length,
+        files: fileStats,
+      });
+    } catch (error: any) {
+      console.error('API /api/backup/status error:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   });

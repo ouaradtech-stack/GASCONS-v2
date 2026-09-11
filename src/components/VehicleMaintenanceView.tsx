@@ -70,7 +70,7 @@ export const VehicleMaintenanceView: React.FC = () => {
     currentUser,
   } = useGascons();
 
-  const currency = companyProfile.currency || '€';
+  const currency = companyProfile.currency || 'DHS';
 
   // Navigation sub-tabs inside Maintenance
   const [activeTab, setActiveTab] = useState<'all' | 'schedule' | 'by-vehicle'>('all');

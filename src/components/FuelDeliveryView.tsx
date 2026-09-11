@@ -35,7 +35,10 @@ export const FuelDeliveryView: React.FC = () => {
     getSupplierById,
     totalDeliveriesLiters,
     totalDeliverySpend,
+    currentStockLiters,
   } = useGascons();
+
+  const currency = companyProfile.currency || 'DHS';
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -106,6 +109,16 @@ export const FuelDeliveryView: React.FC = () => {
       return;
     }
 
+    // Le stock cuve ne doit pas dépasser la capacité max de la cuve
+    const maxCapacity = Number(stockConfig.tankCapacity) > 0 ? Number(stockConfig.tankCapacity) : 50000;
+    const availableSpace = Math.max(0, maxCapacity - currentStockLiters);
+    if (qty > availableSpace) {
+      setErrorMsg(
+        `Dépassement interdit : La quantité livrée (${qty.toLocaleString('fr-FR')} L) dépasse l'espace libre dans la cuve (${availableSpace.toLocaleString('fr-FR')} L restants). La capacité maximale est de ${maxCapacity.toLocaleString('fr-FR')} L.`
+      );
+      return;
+    }
+
     if (price < 0) {
       setErrorMsg('Le prix unitaire ne peut pas être négatif.');
       return;
@@ -173,6 +186,17 @@ export const FuelDeliveryView: React.FC = () => {
 
     if (editQty <= 0) {
       setEditErrorMsg('La quantité livrée doit être supérieure à 0 Litre.');
+      return;
+    }
+
+    // Le stock cuve ne doit pas dépasser la capacité max de la cuve
+    const maxCapacity = Number(stockConfig.tankCapacity) > 0 ? Number(stockConfig.tankCapacity) : 50000;
+    const oldQty = Number(editingDelivery.quantityLiters) || 0;
+    const availableSpaceWithCurrent = Math.max(0, maxCapacity - (currentStockLiters - oldQty));
+    if (editQty > availableSpaceWithCurrent) {
+      setEditErrorMsg(
+        `Dépassement interdit : Le stock cuve ne doit pas dépasser la capacité maximale (${maxCapacity.toLocaleString('fr-FR')} L). Espace libre avec cette modification : ${availableSpaceWithCurrent.toLocaleString('fr-FR')} L.`
+      );
       return;
     }
 
@@ -317,7 +341,7 @@ export const FuelDeliveryView: React.FC = () => {
             </span>
           </div>
           <div className="text-2xl font-black text-blue-900 font-mono">
-            {totalDeliverySpend.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-sm font-bold text-slate-500">€</span>
+            {totalDeliverySpend.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-sm font-bold text-slate-500">{currency}</span>
           </div>
           <p className="text-[11px] text-slate-400">Basé sur le prix unitaire HT/TTC saisi</p>
         </div>
@@ -425,12 +449,12 @@ export const FuelDeliveryView: React.FC = () => {
 
                       {/* Unit Price */}
                       <td className="px-4 py-3.5 text-right font-mono text-slate-700">
-                        {del.unitPrice !== undefined ? `${del.unitPrice.toFixed(3)} €/L` : '-'}
+                        {del.unitPrice !== undefined ? `${del.unitPrice.toFixed(3)} ${currency}/L` : '-'}
                       </td>
 
                       {/* Total Cost */}
                       <td className="px-4 py-3.5 text-right font-mono font-bold text-slate-900">
-                        {del.totalCost !== undefined ? `${del.totalCost.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €` : '-'}
+                        {del.totalCost !== undefined ? `${del.totalCost.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} ${currency}` : '-'}
                       </td>
 
                       {/* Truck & Driver */}
@@ -676,7 +700,7 @@ export const FuelDeliveryView: React.FC = () => {
                 {/* Prix Unitaire */}
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    Prix Unitaire (€ / Litre)
+                    Prix Unitaire ({currency} / Litre)
                   </label>
                   <div className="relative">
                     <input
@@ -685,10 +709,10 @@ export const FuelDeliveryView: React.FC = () => {
                       min="0"
                       value={editUnitPrice}
                       onChange={(e) => setEditUnitPrice(e.target.value)}
-                      className="w-full pl-8 pr-12 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold text-sm focus:ring-2 focus:ring-blue-500 outline-hidden"
+                      className="w-full pl-8 pr-16 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold text-sm focus:ring-2 focus:ring-blue-500 outline-hidden"
                     />
                     <DollarSign className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
-                    <span className="absolute right-3 top-2 font-bold text-slate-400">€/L</span>
+                    <span className="absolute right-3 top-2 font-bold text-slate-400 text-xs">{currency}/L</span>
                   </div>
                 </div>
               </div>
@@ -698,7 +722,7 @@ export const FuelDeliveryView: React.FC = () => {
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center justify-between">
                   <span className="text-blue-900 font-semibold">Montant Total Recalculé :</span>
                   <span className="text-base font-black text-blue-950 font-mono">
-                    {(Number(editQuantityLiters || 0) * Number(editUnitPrice || 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                    {(Number(editQuantityLiters || 0) * Number(editUnitPrice || 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} {currency}
                   </span>
                 </div>
               )}
@@ -850,14 +874,20 @@ export const FuelDeliveryView: React.FC = () => {
 
                 {/* Quantite Litres */}
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Quantité Livrée (Litres) <span className="text-red-500">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">
+                      Quantité Livrée (Litres) <span className="text-red-500">*</span>
+                    </label>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      Espace libre: {Math.max(0, (stockConfig.tankCapacity || 50000) - currentStockLiters).toLocaleString('fr-FR')} L
+                    </span>
+                  </div>
                   <div className="relative">
                     <input
                       type="number"
                       step="any"
                       min="0.01"
+                      max={Math.max(0, (stockConfig.tankCapacity || 50000) - currentStockLiters)}
                       value={quantityLiters}
                       onChange={(e) => setQuantityLiters(e.target.value)}
                       placeholder="ex: 10000"
@@ -872,7 +902,7 @@ export const FuelDeliveryView: React.FC = () => {
                 {/* Prix Unitaire */}
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    Prix Unitaire (€ / Litre)
+                    Prix Unitaire ({currency} / Litre)
                   </label>
                   <div className="relative">
                     <input
@@ -882,10 +912,10 @@ export const FuelDeliveryView: React.FC = () => {
                       value={unitPrice}
                       onChange={(e) => setUnitPrice(e.target.value)}
                       placeholder="1.45"
-                      className="w-full pl-8 pr-12 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold text-sm focus:ring-2 focus:ring-emerald-500 outline-hidden"
+                      className="w-full pl-8 pr-16 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold text-sm focus:ring-2 focus:ring-emerald-500 outline-hidden"
                     />
                     <DollarSign className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
-                    <span className="absolute right-3 top-2 font-bold text-slate-400">€/L</span>
+                    <span className="absolute right-3 top-2 font-bold text-slate-400 text-xs">{currency}/L</span>
                   </div>
                 </div>
               </div>
@@ -895,7 +925,7 @@ export const FuelDeliveryView: React.FC = () => {
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between">
                   <span className="text-emerald-900 font-semibold">Montant Total Estimé de la Livraison:</span>
                   <span className="text-base font-black text-emerald-950 font-mono">
-                    {computedTotalCost.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                    {computedTotalCost.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} {currency}
                   </span>
                 </div>
               )}

@@ -70,7 +70,7 @@ export const CompanySetupModal: React.FC<CompanySetupModalProps> = ({
   const [address, setAddress] = useState(companyProfile.address || '');
   const [city, setCity] = useState(companyProfile.city || '');
   const [country, setCountry] = useState(companyProfile.country || '');
-  const [currency, setCurrency] = useState(companyProfile.currency || 'DZD');
+  const [currency, setCurrency] = useState(companyProfile.currency || 'DHS');
   const [headerTagline, setHeaderTagline] = useState(
     companyProfile.headerTagline || 'Gestion & Contrôle des Consommations de Gasoil'
   );
@@ -427,20 +427,40 @@ export const CompanySetupModal: React.FC<CompanySetupModalProps> = ({
 
               <div>
                 <label className="block font-semibold text-xs text-slate-700 mb-1">
-                  Devise Monétaire
+                  Devise Monétaire Principale
                 </label>
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white outline-hidden"
-                >
-                  <option value="DZD">Dinar Algérien (DZD / DA)</option>
-                  <option value="EUR">Euro (€ / EUR)</option>
-                  <option value="FCFA">Franc CFA (XOF / XAF)</option>
-                  <option value="MAD">Dirham Marocain (MAD)</option>
-                  <option value="TND">Dinar Tunisien (TND)</option>
-                  <option value="USD">Dollar US ($ / USD)</option>
-                </select>
+                <div className="space-y-1.5">
+                  <select
+                    value={['DHS', 'MAD', 'EUR', 'DZD', 'FCFA', 'TND', 'USD'].includes(currency) ? currency : 'AUTRE'}
+                    onChange={(e) => {
+                      if (e.target.value === 'AUTRE') {
+                        setCurrency('');
+                      } else {
+                        setCurrency(e.target.value);
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white outline-hidden"
+                  >
+                    <option value="DHS">🇲🇦 Dirham Marocain (DHS / DH)</option>
+                    <option value="MAD">🇲🇦 Dirham Marocain (Code ISO: MAD)</option>
+                    <option value="EUR">🇪🇺 Euro (€ / EUR)</option>
+                    <option value="DZD">🇩🇿 Dinar Algérien (DZD / DA)</option>
+                    <option value="FCFA">🌍 Franc CFA (FCFA / XOF)</option>
+                    <option value="TND">🇹🇳 Dinar Tunisien (TND)</option>
+                    <option value="USD">🇺🇸 Dollar US ($ / USD)</option>
+                    <option value="AUTRE">✍️ Autre devise personnalisée...</option>
+                  </select>
+
+                  {!['DHS', 'MAD', 'EUR', 'DZD', 'FCFA', 'TND', 'USD'].includes(currency) && (
+                    <input
+                      type="text"
+                      value={currency}
+                      onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+                      placeholder="Tapez le symbole ou code (ex: DHS, DH, CAD...)"
+                      className="w-full px-3 py-1.5 bg-amber-50/60 border border-amber-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white outline-hidden"
+                    />
+                  )}
+                </div>
               </div>
             </div>
           </div>

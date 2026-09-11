@@ -25,8 +25,16 @@ import { Fuel, ArrowLeft, CheckCircle2 } from 'lucide-react';
 function GasconsApp() {
   const { companyProfile, isAuthenticated } = useGascons();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [adminSubTab, setAdminSubTab] = useState<'vehicles' | 'maintenance' | 'categories' | 'users' | 'departments' | 'suppliers' | 'company' | 'backup'>('vehicles');
   const [selectedVoucher, setSelectedVoucher] = useState<FuelExit | null>(null);
   const [recentSuccessTicket, setRecentSuccessTicket] = useState<FuelExit | null>(null);
+
+  const handleNavigate = (tab: string, subTab?: string) => {
+    setCurrentTab(tab);
+    if (tab === 'base-donnees' && subTab) {
+      setAdminSubTab(subTab as any);
+    }
+  };
 
   const handleFuelExitSuccess = (newExit: FuelExit) => {
     setSelectedVoucher(newExit);
@@ -48,7 +56,7 @@ function GasconsApp() {
       />
 
       {/* Top Navigation */}
-      <Navbar currentTab={currentTab} onNavigate={(tab) => setCurrentTab(tab)} />
+      <Navbar currentTab={currentTab} onNavigate={handleNavigate} />
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -135,7 +143,7 @@ function GasconsApp() {
 
         {currentTab === 'rapports' && <ReportsExportView />}
 
-        {currentTab === 'base-donnees' && <AdminDataView />}
+        {currentTab === 'base-donnees' && <AdminDataView initialTab={adminSubTab} />}
       </main>
 
       {/* Footer */}

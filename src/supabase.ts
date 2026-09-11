@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS public.company_profiles (
   address TEXT,
   city TEXT,
   country TEXT,
-  currency TEXT DEFAULT 'DZD',
+  currency TEXT DEFAULT 'DHS',
   header_tagline TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );

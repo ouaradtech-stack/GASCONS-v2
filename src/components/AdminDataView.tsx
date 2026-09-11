@@ -15,6 +15,7 @@ import {
   Eye,
   EyeOff,
   FileJson,
+  FileSpreadsheet,
   Key,
   Layers,
   Lock,
@@ -24,6 +25,8 @@ import {
   Power,
   PowerOff,
   RefreshCw,
+  RotateCcw,
+  FolderCheck,
   Search,
   Shield,
   ShieldAlert,
@@ -52,8 +55,20 @@ import { CompanySetupModal } from './CompanySetupModal';
 import { SupabaseSetupModal } from './SupabaseSetupModal';
 import { SupabaseService } from '../services/supabaseService';
 import { VehicleMaintenanceView } from './VehicleMaintenanceView';
+import { ImportVehiclesModal } from './ImportVehiclesModal';
+import {
+  exportVehiclesToCSV,
+  generateVehicleCSVTemplate,
+  parseVehiclesCSV,
+  downloadFile,
+  ParsedVehicleRow,
+} from '../utils/exportHelpers';
 
-export const AdminDataView: React.FC = () => {
+interface AdminDataViewProps {
+  initialTab?: 'vehicles' | 'maintenance' | 'categories' | 'users' | 'departments' | 'suppliers' | 'company' | 'backup';
+}
+
+export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
   const {
     companyProfile,
     categories,
@@ -97,13 +112,36 @@ export const AdminDataView: React.FC = () => {
     firebaseAuthUser,
     signInWithGoogle,
     vehicleMaintenances,
+    lastImportedVehicleBatch,
+    importVehicleBatch,
+    deleteLastImportedBatch,
+    localBackupStatus,
+    triggerManualLocalBackup,
+    syncAllToSupabase,
   } = useGascons();
 
-  const [activeTab, setActiveTab] = useState<'vehicles' | 'maintenance' | 'categories' | 'users' | 'departments' | 'suppliers' | 'company' | 'backup'>('vehicles');
+  const [activeTab, setActiveTab] = useState<'vehicles' | 'maintenance' | 'categories' | 'users' | 'departments' | 'suppliers' | 'company' | 'backup'>(
+    initialTab || 'vehicles'
+  );
+
+  React.useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
+
+  // Vehicle Import / Export state
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importFileName, setImportFileName] = useState('');
+  const [importParsedRows, setImportParsedRows] = useState<ParsedVehicleRow[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [importMode, setImportMode] = useState<'merge' | 'append'>('merge');
 
   // 1. Vehicle Modal
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
@@ -241,6 +279,90 @@ export const AdminDataView: React.FC = () => {
 
     setIsVehicleModalOpen(false);
     setTimeout(() => setSuccessMsg(''), 3000);
+  };
+
+  // Vehicle Import & Export Handlers
+  const handleExportVehiclesCSV = () => {
+    try {
+      const companySlug = companyProfile?.name ? companyProfile.name.replace(/[^a-zA-Z0-9]/g, '_') : 'Gascons';
+      exportVehiclesToCSV(vehicles, categories, departments, `Flotte_${companySlug}`);
+      setSuccessMsg(`Exportation réussie : ${vehicles.length} véhicules et engins exportés en fichier CSV (Excel) !`);
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (err: any) {
+      setErrorMsg(`Erreur lors de l exportation : ${err?.message || err}`);
+    }
+  };
+
+  const handleDownloadCSVTemplate = () => {
+    const template = generateVehicleCSVTemplate();
+    downloadFile(template, 'Modele_Import_Vehicules_Engins.csv', 'text/csv;charset=utf-8;');
+  };
+
+  const handleVehicleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = (ev.target?.result as string) || '';
+      setImportText(content);
+      const res = parseVehiclesCSV(content, categories, departments);
+      setImportParsedRows(res.validVehicles);
+      setImportErrors(res.errors);
+    };
+    reader.readAsText(file);
+  };
+
+  const handlePasteChange = (text: string) => {
+    setImportText(text);
+    if (!text.trim()) {
+      setImportParsedRows([]);
+      setImportErrors([]);
+      return;
+    }
+    const res = parseVehiclesCSV(text, categories, departments);
+    setImportParsedRows(res.validVehicles);
+    setImportErrors(res.errors);
+  };
+
+  const handleExecuteImportVehicles = () => {
+    if (importParsedRows.length === 0) {
+      setErrorMsg('Aucun véhicule valide à importer.');
+      return;
+    }
+
+    let addedCount = 0;
+    let updatedCount = 0;
+
+    importParsedRows.forEach((row) => {
+      const existing = importMode === 'merge'
+        ? vehicles.find(
+            (v) =>
+              (row.plateNumber && v.plateNumber.trim().toLowerCase() === row.plateNumber.trim().toLowerCase()) ||
+              (row.code && v.code.trim().toLowerCase() === row.code.trim().toLowerCase())
+          )
+        : undefined;
+
+      if (existing) {
+        updateVehicle(existing.id, row);
+        updatedCount++;
+      } else {
+        addVehicle(row);
+        addedCount++;
+      }
+    });
+
+    setSuccessMsg(
+      `Importation réussie : ${addedCount} véhicule(s) ajouté(s)${
+        updatedCount > 0 ? `, ${updatedCount} mis à jour` : ''
+      } avec succès !`
+    );
+    setIsImportModalOpen(false);
+    setImportText('');
+    setImportFileName('');
+    setImportParsedRows([]);
+    setImportErrors([]);
+    setTimeout(() => setSuccessMsg(''), 5000);
   };
 
   // Open Category Modal
@@ -721,7 +843,7 @@ export const AdminDataView: React.FC = () => {
           }`}
         >
           <Users className="w-4 h-4" />
-          Utilisateurs & Mots de passe ({users.length})
+          Comptes & Sous-Admins ({users.length})
         </button>
 
         <button
@@ -776,15 +898,72 @@ export const AdminDataView: React.FC = () => {
       {/* 1. VEHICLES TAB */}
       {activeTab === 'vehicles' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-sm text-slate-900">Parc de Véhicules & Équipements</h3>
-            <button
-              onClick={() => handleOpenVehicleModal()}
-              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs"
-            >
-              <Plus className="w-4 h-4" />
-              Nouveau Véhicule
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-sm text-slate-900">Parc de Véhicules & Équipements</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {vehicles.length} véhicules enregistrés. Importez ou exportez vos données de flotte en un clic.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportVehiclesCSV}
+                title="Exporter la liste des véhicules et engins en fichier CSV compatible Excel"
+                className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Exporter CSV / Excel</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setImportText('');
+                  setImportFileName('');
+                  setImportParsedRows([]);
+                  setImportErrors([]);
+                  setIsImportModalOpen(true);
+                }}
+                title="Importer un fichier CSV de véhicules et engins avec détection automatique"
+                className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Importer Véhicules & Engins</span>
+              </button>
+
+              {lastImportedVehicleBatch && lastImportedVehicleBatch.count > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (
+                      window.confirm(
+                        `Voulez-vous supprimer les ${lastImportedVehicleBatch.count} véhicule(s) de la dernière liste importée ?`
+                      )
+                    ) {
+                      const res = await deleteLastImportedBatch();
+                      if (res.success) {
+                        setSuccessMsg(`${res.deletedCount} véhicule(s) du dernier import ont été supprimés avec succès.`);
+                        setTimeout(() => setSuccessMsg(''), 5000);
+                      }
+                    }
+                  }}
+                  title={`Supprimer la dernière liste importée (${lastImportedVehicleBatch.count} véhicules)`}
+                  className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Supprimer dernier import ({lastImportedVehicleBatch.count})</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => handleOpenVehicleModal()}
+                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Nouveau Véhicule</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -979,13 +1158,41 @@ export const AdminDataView: React.FC = () => {
               </div>
             </div>
           ) : !canManageUsers ? (
-            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3">
-              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-bold text-xs">Accès Restreint : Seul un Administrateur peut créer ou modifier les utilisateurs</p>
-                <p className="text-[11px] text-amber-700 mt-0.5">
-                  Votre profil actuel est <span className="font-bold uppercase font-mono">{currentUser.role}</span>. Connectez-vous avec un compte Administrateur pour gérer les comptes.
-                </p>
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-start gap-3">
+                <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-xs">Accès Restreint : Seul un Administrateur peut créer ou modifier les comptes</p>
+                  <p className="text-[11px] text-amber-700 mt-0.5">
+                    Votre profil actuel est <span className="font-bold uppercase font-mono">{currentUser.role}</span> ({currentUser.name}).
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {users.find((u) => u.role === 'SUPER_ADMIN') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sa = users.find((u) => u.role === 'SUPER_ADMIN');
+                      if (sa) setCurrentUser(sa);
+                    }}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>👑 Activer Super-Admin</span>
+                  </button>
+                )}
+                {users.find((u) => u.role === 'ADMIN') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const adm = users.find((u) => u.role === 'ADMIN');
+                      if (adm) setCurrentUser(adm);
+                    }}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>⚡ Activer Admin ({users.find((u) => u.role === 'ADMIN')?.name})</span>
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -993,7 +1200,7 @@ export const AdminDataView: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-purple-600" />
                 <span className="font-semibold">
-                  Droits Administrateur Actifs : Gestion des comptes et mots de passe.
+                  Droits Administrateur Actifs : Vous pouvez gérer, modifier, créer et désactiver les comptes et sous-admins.
                 </span>
               </div>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-200 text-purple-900">
@@ -1041,15 +1248,27 @@ export const AdminDataView: React.FC = () => {
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {canManageUsers && (
-                <button
-                  onClick={() => handleOpenUserModal(undefined, 'POMPISTE')}
-                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-300"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Nouveau Compte Interne</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenUserModal(undefined, 'SOUS_ADMIN')}
+                    className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Award className="w-3.5 h-3.5" />
+                    <span>+ Nouveau Sous-Admin (Client)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenUserModal(undefined, 'POMPISTE')}
+                    className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Nouveau Compte Interne</span>
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1395,7 +1614,7 @@ export const AdminDataView: React.FC = () => {
                 </div>
 
                 <span className="text-xs font-mono font-bold bg-amber-400/20 text-amber-300 px-2.5 py-1 rounded-lg border border-amber-400/30">
-                  {companyProfile.currency || 'DZD'}
+                  {companyProfile.currency || 'DHS'}
                 </span>
               </div>
 
@@ -1459,6 +1678,69 @@ export const AdminDataView: React.FC = () => {
             <p className="text-xs text-slate-500 mt-0.5">
               Synchronisation Supabase (PostgreSQL), Cloud SQL, Firebase Firestore, export JSON et restauration
             </p>
+          </div>
+
+          {/* Local Folder 'base de donnee' & Automatic Supabase Sync Card */}
+          <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-900/60 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-indigo-600/30 border border-indigo-400/30 text-indigo-300 flex items-center justify-center shrink-0 shadow-inner">
+                <FolderCheck className="w-6 h-6 text-indigo-400" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-black uppercase tracking-wider text-indigo-300">
+                    Dossier Local : /base de donnee/
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-1 font-bold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Sauvegarde locale automatique active
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 max-w-xl">
+                  {localBackupStatus?.message ||
+                    "Une copie miroir complète (JSON et CSV véhicules) est automatiquement enregistrée localement dans le dossier « base de donnee » lors de chaque modification."}
+                </p>
+                {localBackupStatus?.lastSaved && (
+                  <p className="text-[11px] font-mono text-indigo-200/80">
+                    Dernière écriture locale : {new Date(localBackupStatus.lastSaved).toLocaleString('fr-FR')}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (triggerManualLocalBackup) {
+                    const ok = await triggerManualLocalBackup();
+                    if (ok) {
+                      setSuccessMsg("Copie locale mise à jour dans le dossier 'base de donnee' !");
+                      setTimeout(() => setSuccessMsg(''), 4000);
+                    }
+                  }
+                }}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+              >
+                <FolderCheck className="w-3.5 h-3.5" />
+                <span>Sauvegarder dans 'base de donnee'</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  if (syncAllToSupabase) {
+                    await syncAllToSupabase();
+                    setSuccessMsg("Synchronisation avec Supabase effectuée !");
+                    setTimeout(() => setSuccessMsg(''), 4000);
+                  }
+                }}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Sync Supabase</span>
+              </button>
+            </div>
           </div>
 
           {/* Cloud Databases Status Cards */}
@@ -2473,6 +2755,28 @@ export const AdminDataView: React.FC = () => {
       <SupabaseSetupModal
         isOpen={isSupabaseModalOpen}
         onClose={() => setIsSupabaseModalOpen(false)}
+      />
+
+      {/* Vehicle CSV Import Modal */}
+      <ImportVehiclesModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        categories={categories}
+        departments={departments}
+        vehicles={vehicles}
+        addVehicle={addVehicle}
+        updateVehicle={updateVehicle}
+        importVehicleBatch={importVehicleBatch}
+        lastImportedVehicleBatch={lastImportedVehicleBatch}
+        deleteLastImportedBatch={deleteLastImportedBatch}
+        onImportSuccess={(added, updated) => {
+          setSuccessMsg(
+            `Importation réussie : ${added} véhicule(s) ajouté(s)${
+              updated > 0 ? `, ${updated} mis à jour` : ''
+            } avec succès !`
+          );
+          setTimeout(() => setSuccessMsg(''), 5000);
+        }}
       />
     </div>
   );

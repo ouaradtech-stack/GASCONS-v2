@@ -37,7 +37,7 @@ export const companyProfiles = pgTable('company_profiles', {
   address: text('address'),
   city: text('city'),
   country: text('country'),
-  currency: text('currency').default('DZD'),
+  currency: text('currency').default('DHS'),
   headerTagline: text('header_tagline'),
   updatedAt: timestamp('updated_at').defaultNow(),
 });

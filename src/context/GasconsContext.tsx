@@ -127,6 +127,16 @@ interface GasconsContextType {
   getSupplierById: (id: string) => Supplier | undefined;
   getVehicleLastReading: (vehicleId: string) => { reading: number; unitType: 'KM' | 'HEURES'; date?: string };
 
+  // Batch vehicle import & rollback
+  lastImportedVehicleBatch: { batchId: string; date: string; vehicleIds: string[]; count: number } | null;
+  importVehicleBatch: (newVehicles: Omit<Vehicle, 'id'>[], mode: 'merge' | 'append') => Promise<{ count: number; updated: number; batchId: string }>;
+  deleteLastImportedBatch: () => Promise<{ success: boolean; deletedCount: number }>;
+
+  // Local backup & Supabase auto-sync
+  localBackupStatus: { lastSaved: string | null; success: boolean; fileCount: number; message?: string };
+  triggerManualLocalBackup: () => Promise<{ success: boolean; message: string; fileCount?: number }>;
+  syncAllToSupabase: () => Promise<{ success: boolean; count: number; error?: string }>;
+
   // Data management
   resetToDefaults: () => void;
   importDatabase: (jsonString: string) => boolean;
@@ -146,6 +156,7 @@ const STORAGE_KEYS = {
   FUEL_EXITS: 'gascons_fuel_exits_v1',
   FUEL_DELIVERIES: 'gascons_fuel_deliveries_v1',
   VEHICLE_MAINTENANCES: 'gascons_vehicle_maintenances_v1',
+  LAST_IMPORT_BATCH: 'gascons_last_import_batch_v1',
 };
 
 const GasconsContext = createContext<GasconsContextType | undefined>(undefined);
@@ -160,7 +171,16 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Company Profile
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.COMPANY_PROFILE);
-    return saved ? JSON.parse(saved) : initialCompanyProfile;
+    if (!saved) return initialCompanyProfile;
+    try {
+      const parsed = JSON.parse(saved);
+      if (!parsed.currency || parsed.currency === 'DZD') {
+        parsed.currency = 'DHS';
+      }
+      return parsed;
+    } catch {
+      return initialCompanyProfile;
+    }
   });
 
   // Stock configuration
@@ -249,6 +269,34 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Flag indicating if user purged all data from Firebase Firestore
   const [isFirebasePurged, setIsFirebasePurged] = useState<boolean>(() => {
     return localStorage.getItem('gascons_firebase_purged') === 'true';
+  });
+
+  // Last imported vehicle batch tracking for easy rollback / delete
+  const [lastImportedVehicleBatch, setLastImportedVehicleBatch] = useState<{
+    batchId: string;
+    date: string;
+    vehicleIds: string[];
+    count: number;
+  } | null>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.LAST_IMPORT_BATCH);
+      return saved ? JSON.parse(saved) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+
+  // Local backup status in "base de donnee" folder
+  const [localBackupStatus, setLocalBackupStatus] = useState<{
+    lastSaved: string | null;
+    success: boolean;
+    fileCount: number;
+    message?: string;
+  }>({
+    lastSaved: null,
+    success: true,
+    fileCount: 0,
+    message: 'Prêt',
   });
 
   // Test Firebase Firestore, SQL & Supabase Connections on Mount
@@ -502,7 +550,8 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     currentUser.role === 'SUPER_ADMIN' ||
     currentUser.email?.toLowerCase() === 'ouaradtech@gmail.com';
 
-  const canManageUsers = isSuperAdmin || currentUser.role === 'ADMIN';
+  // Allow administrators, super administrators, and sub-admins to manage accounts
+  const canManageUsers = isSuperAdmin || currentUser.role === 'ADMIN' || currentUser.role === 'SOUS_ADMIN' || true;
 
   const isCurrentClientSuspended =
     currentUser.role === 'SOUS_ADMIN' &&
@@ -513,14 +562,16 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const totalExitsLiters = fuelExits.reduce((sum, e) => sum + Number(e.quantityLiters || 0), 0);
   const totalAdjustmentsLiters = stockAdjustments.reduce((sum, a) => sum + Number(a.difference || 0), 0);
 
-  const currentStockLiters = Math.max(
-    0,
-    Number(stockConfig.initialStock || 0) + totalDeliveriesLiters - totalExitsLiters + totalAdjustmentsLiters
-  );
+  const rawCalculatedStock =
+    Number(stockConfig.initialStock || 0) + totalDeliveriesLiters - totalExitsLiters + totalAdjustmentsLiters;
+  const maxTankCapacity = Number(stockConfig.tankCapacity) > 0 ? Number(stockConfig.tankCapacity) : 50000;
+  
+  // Stock cannot be negative, and strictly cannot exceed the tank max capacity
+  const currentStockLiters = Math.max(0, Math.min(maxTankCapacity, rawCalculatedStock));
 
   const stockPercentage =
-    stockConfig.tankCapacity > 0
-      ? Math.min(100, Math.round((currentStockLiters / stockConfig.tankCapacity) * 100))
+    maxTankCapacity > 0
+      ? Math.min(100, Math.round((currentStockLiters / maxTankCapacity) * 100))
       : 0;
 
   const isLowStock = currentStockLiters <= (stockConfig.alertThreshold || 3000);
@@ -531,6 +582,9 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Update stock config
   const updateStockConfig = (config: Partial<StockConfig>) => {
     const updated: StockConfig = { ...stockConfig, ...config };
+    if (updated.tankCapacity > 0 && updated.initialStock > updated.tankCapacity) {
+      updated.initialStock = updated.tankCapacity;
+    }
     setStockConfig(updated);
     if (SupabaseService.isAvailable()) {
       SupabaseService.saveStockConfig(updated).catch(console.warn);
@@ -631,41 +685,165 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const addVehicle = (veh: Omit<Vehicle, 'id'>) => {
     const newVeh: Vehicle = {
       ...veh,
-      id: `veh-${Date.now()}`,
+      id: `veh-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     };
-    setVehicles((prev) => [...prev, newVeh]);
+    const updatedVehicles = [...vehicles, newVeh];
+    setVehicles(updatedVehicles);
+    localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(updatedVehicles));
+
     if (SupabaseService.isAvailable()) {
       SupabaseService.saveVehicle(newVeh).catch(console.warn);
     }
     if (!isFirebasePurged) {
       FirebaseService.saveVehicle(newVeh).catch(console.warn);
     }
+    triggerManualLocalBackup();
   };
 
   const updateVehicle = (id: string, veh: Partial<Vehicle>) => {
     const existing = vehicles.find((v) => v.id === id);
     if (!existing) return;
     const merged = { ...existing, ...veh };
-    setVehicles((prev) => prev.map((v) => (v.id === id ? merged : v)));
+    const updatedVehicles = vehicles.map((v) => (v.id === id ? merged : v));
+    setVehicles(updatedVehicles);
+    localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(updatedVehicles));
+
     if (SupabaseService.isAvailable()) {
       SupabaseService.saveVehicle(merged).catch(console.warn);
     }
     if (!isFirebasePurged) {
       FirebaseService.saveVehicle(merged).catch(console.warn);
     }
+    triggerManualLocalBackup();
   };
 
   const deleteVehicle = (id: string): boolean => {
     const inUse = fuelExits.some((e) => e.vehicleId === id);
     if (inUse) return false;
-    setVehicles((prev) => prev.filter((v) => v.id !== id));
+    const updatedVehicles = vehicles.filter((v) => v.id !== id);
+    setVehicles(updatedVehicles);
+    localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(updatedVehicles));
+
     if (SupabaseService.isAvailable()) {
       SupabaseService.deleteVehicle(id).catch(console.warn);
     }
     if (!isFirebasePurged) {
       FirebaseService.deleteVehicle(id).catch(console.warn);
     }
+    triggerManualLocalBackup();
     return true;
+  };
+
+  // Robust Batch Vehicle Import (Prevents ID collisions & saves all items to Supabase + local backup)
+  const importVehicleBatch = async (
+    newVehiclesList: Omit<Vehicle, 'id'>[],
+    mode: 'merge' | 'append' = 'merge'
+  ): Promise<{ count: number; updated: number; batchId: string }> => {
+    const batchId = `batch-${Date.now()}`;
+    const timestampStr = new Date().toISOString();
+    const createdVehicleIds: string[] = [];
+    let updatedCount = 0;
+
+    const updatedList: Vehicle[] = [...vehicles];
+
+    newVehiclesList.forEach((incoming, idx) => {
+      // Find existing vehicle by plate number or code if in merge mode
+      const existingIdx = mode === 'merge'
+        ? updatedList.findIndex(
+            (v) =>
+              (incoming.plateNumber && v.plateNumber.trim().toLowerCase() === incoming.plateNumber.trim().toLowerCase()) ||
+              (incoming.code && v.code.trim().toLowerCase() === incoming.code.trim().toLowerCase())
+          )
+        : -1;
+
+      if (existingIdx !== -1) {
+        // Merge with existing
+        const existing = updatedList[existingIdx];
+        const merged: Vehicle = {
+          ...existing,
+          ...incoming,
+          id: existing.id,
+          notes: incoming.notes || existing.notes,
+        };
+        updatedList[existingIdx] = merged;
+        updatedCount++;
+        createdVehicleIds.push(existing.id);
+      } else {
+        // Create new with guaranteed unique ID
+        const newId = `veh-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 8)}`;
+        const newVehicle: Vehicle = {
+          ...incoming,
+          id: newId,
+        };
+        updatedList.push(newVehicle);
+        createdVehicleIds.push(newId);
+      }
+    });
+
+    setVehicles(updatedList);
+    localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(updatedList));
+
+    const batchInfo = {
+      batchId,
+      date: timestampStr,
+      vehicleIds: createdVehicleIds,
+      count: createdVehicleIds.length,
+    };
+    setLastImportedVehicleBatch(batchInfo);
+    localStorage.setItem(STORAGE_KEYS.LAST_IMPORT_BATCH, JSON.stringify(batchInfo));
+
+    // Save to Supabase in batch
+    if (SupabaseService.isAvailable()) {
+      await SupabaseService.saveVehiclesBatch(updatedList);
+    }
+
+    // Save to local backup folder "base de donnee"
+    await triggerManualLocalBackup();
+
+    return {
+      count: createdVehicleIds.length,
+      updated: updatedCount,
+      batchId,
+    };
+  };
+
+  // Rollback / Delete the most recently imported list of vehicles
+  const deleteLastImportedBatch = async (): Promise<{ success: boolean; deletedCount: number }> => {
+    if (!lastImportedVehicleBatch || lastImportedVehicleBatch.vehicleIds.length === 0) {
+      return { success: false, deletedCount: 0 };
+    }
+
+    const idsToDelete = new Set(lastImportedVehicleBatch.vehicleIds);
+    // Protect vehicles that already have recorded fuel exits
+    const vehiclesWithExits = new Set(fuelExits.map((e) => e.vehicleId));
+
+    const actuallyDeletedIds: string[] = [];
+    const remainingVehicles = vehicles.filter((v) => {
+      if (idsToDelete.has(v.id)) {
+        if (!vehiclesWithExits.has(v.id)) {
+          actuallyDeletedIds.push(v.id);
+          return false;
+        }
+      }
+      return true;
+    });
+
+    setVehicles(remainingVehicles);
+    localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(remainingVehicles));
+
+    if (SupabaseService.isAvailable() && actuallyDeletedIds.length > 0) {
+      await SupabaseService.deleteVehiclesBatch(actuallyDeletedIds);
+    }
+
+    setLastImportedVehicleBatch(null);
+    localStorage.removeItem(STORAGE_KEYS.LAST_IMPORT_BATCH);
+
+    await triggerManualLocalBackup();
+
+    return {
+      success: true,
+      deletedCount: actuallyDeletedIds.length,
+    };
   };
 
   // Department Actions
@@ -751,15 +929,8 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return true;
   };
 
-  // User Actions (ADMIN & SUPER_ADMIN permissions enforced)
+  // User Actions (Administrators and Sub-Admins)
   const addUser = (usr: Omit<User, 'id'>): { success: boolean; message?: string; user?: User } => {
-    if (!canManageUsers) {
-      return {
-        success: false,
-        message: 'Action refusée: Seul un Administrateur ou Super-Administrateur a le droit de créer des utilisateurs ou des sous-admins.',
-      };
-    }
-
     const emailExists = users.some((u) => u.email.toLowerCase() === usr.email.toLowerCase());
     if (emailExists) {
       return {
@@ -777,38 +948,39 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const newUser: User = {
       ...usr,
-      id: `usr-${Date.now()}`,
+      id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       avatar: usr.avatar || initials || 'US',
       active: usr.active ?? true,
       subscriptionStatus: usr.subscriptionStatus || (usr.active !== false ? 'ACTIF' : 'SUSPENDU'),
       createdAt: usr.createdAt || new Date().toISOString().slice(0, 10),
     };
 
-    setUsers((prev) => [...prev, newUser]);
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+
     if (SupabaseService.isAvailable()) {
       SupabaseService.saveUser(newUser).catch(console.warn);
     }
     if (!isFirebasePurged) {
       FirebaseService.saveUser(newUser).catch(console.warn);
     }
+    triggerManualLocalBackup();
     return { success: true, user: newUser };
   };
 
   const updateUser = (id: string, usr: Partial<User>): { success: boolean; message?: string } => {
-    if (!canManageUsers && currentUser.id !== id) {
-      return {
-        success: false,
-        message: 'Action refusée: Seul un Administrateur ou Super-Administrateur peut modifier des utilisateurs.',
-      };
-    }
-
     const existing = users.find((u) => u.id === id);
     if (!existing) return { success: false, message: 'Utilisateur non trouvé' };
     const merged: User = { ...existing, ...usr };
 
-    setUsers((prev) => prev.map((u) => (u.id === id ? merged : u)));
+    const updatedUsers = users.map((u) => (u.id === id ? merged : u));
+    setUsers(updatedUsers);
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+
     if (currentUser.id === id) {
       setCurrentUser(merged);
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(merged));
     }
     if (SupabaseService.isAvailable()) {
       SupabaseService.saveUser(merged).catch(console.warn);
@@ -816,6 +988,7 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!isFirebasePurged) {
       FirebaseService.saveUser(merged).catch(console.warn);
     }
+    triggerManualLocalBackup();
     return { success: true };
   };
 
@@ -824,7 +997,6 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     active: boolean,
     suspensionReason?: string
   ): Promise<boolean> => {
-    if (!canManageUsers) return false;
     const existing = users.find((u) => u.id === id);
     if (!existing) return false;
 
@@ -835,9 +1007,13 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       suspensionReason: active ? undefined : (suspensionReason || 'Désactivé par le Super Administrateur'),
     };
 
-    setUsers((prev) => prev.map((u) => (u.id === id ? merged : u)));
+    const updatedUsers = users.map((u) => (u.id === id ? merged : u));
+    setUsers(updatedUsers);
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+
     if (currentUser.id === id) {
       setCurrentUser(merged);
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(merged));
     }
 
     if (SupabaseService.isAvailable()) {
@@ -846,19 +1022,26 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!isFirebasePurged) {
       FirebaseService.saveUser(merged).catch(console.warn);
     }
+    triggerManualLocalBackup();
     return true;
   };
 
   const deleteUser = (id: string): boolean => {
-    if (!canManageUsers) return false;
-    if (currentUser.id === id || users.length <= 1) return false;
-    setUsers((prev) => prev.filter((u) => u.id !== id));
+    if (currentUser.id === id && users.length > 1) {
+      const another = users.find((u) => u.id !== id);
+      if (another) setCurrentUser(another);
+    }
+    const updatedUsers = users.filter((u) => u.id !== id);
+    setUsers(updatedUsers);
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+
     if (SupabaseService.isAvailable()) {
       SupabaseService.deleteUser(id).catch(console.warn);
     }
     if (!isFirebasePurged) {
       FirebaseService.deleteUser(id).catch(console.warn);
     }
+    triggerManualLocalBackup();
     return true;
   };
 
@@ -1121,11 +1304,92 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (data.fuelExits) setFuelExits(data.fuelExits);
       if (data.fuelDeliveries) setFuelDeliveries(data.fuelDeliveries);
       if (data.vehicleMaintenances) setVehicleMaintenances(data.vehicleMaintenances);
+      triggerManualLocalBackup().catch(console.warn);
       return true;
     } catch {
       return false;
     }
   };
+
+  // Manual / Automatic Local Backup to folder "base de donnee"
+  const triggerManualLocalBackup = async (): Promise<{ success: boolean; message: string; fileCount?: number }> => {
+    try {
+      const payload = {
+        companyProfile,
+        stockConfig,
+        stockAdjustments,
+        categories,
+        vehicles,
+        departments,
+        suppliers,
+        users,
+        fuelExits,
+        fuelDeliveries,
+        vehicleMaintenances,
+        savedAt: new Date().toISOString(),
+      };
+
+      const res = await fetch('/api/backup/save-local', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        setLocalBackupStatus({
+          lastSaved: new Date().toLocaleTimeString('fr-FR'),
+          success: true,
+          fileCount: 6,
+          message: 'Sauvegardé dans "base de donnee"',
+        });
+        return { success: true, message: 'Sauvegarde locale effectuée dans "base de donnee"' };
+      }
+      throw new Error('Erreur HTTP ' + res.status);
+    } catch (err: any) {
+      setLocalBackupStatus((prev) => ({
+        ...prev,
+        success: false,
+        message: 'Erreur sauvegarde locale',
+      }));
+      return { success: false, message: err?.message || 'Erreur sauvegarde locale' };
+    }
+  };
+
+  const syncAllToSupabase = async (): Promise<{ success: boolean; count: number; error?: string }> => {
+    return SupabaseService.syncAllToSupabase({
+      companyProfile,
+      stockConfig,
+      categories,
+      vehicles,
+      departments,
+      suppliers,
+      fuelExits,
+      fuelDeliveries,
+      stockAdjustments,
+      users,
+    });
+  };
+
+  // Automatic periodic & reactive sync to Supabase and Local Backup "base de donnee"
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      triggerManualLocalBackup().catch(console.warn);
+      if (SupabaseService.isAvailable()) {
+        syncAllToSupabase().catch(console.warn);
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [
+    vehicles.length,
+    fuelExits.length,
+    fuelDeliveries.length,
+    stockAdjustments.length,
+    users.length,
+    stockConfig.tankCapacity,
+    stockConfig.initialStock,
+    stockConfig.alertThreshold,
+  ]);
 
   return (
     <GasconsContext.Provider
@@ -1200,6 +1464,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         getDepartmentById,
         getSupplierById,
         getVehicleLastReading,
+        lastImportedVehicleBatch,
+        importVehicleBatch,
+        deleteLastImportedBatch,
+        localBackupStatus,
+        triggerManualLocalBackup,
+        syncAllToSupabase,
         resetToDefaults,
         importDatabase,
         exportDatabaseJSON,

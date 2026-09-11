@@ -56,9 +56,20 @@ export const StockManagementView: React.FC = () => {
 
   const handleSaveConfig = (e: React.FormEvent) => {
     e.preventDefault();
+    const initStock = Number(initialStockInput) || 0;
+    const capacity = Number(tankCapacityInput) || 0;
+    if (capacity <= 0) {
+      alert('La capacité maximale de la cuve doit être supérieure à 0 Litre.');
+      return;
+    }
+    if (initStock > capacity) {
+      alert(`Le stock initial (${initStock.toLocaleString('fr-FR')} L) ne peut pas dépasser la capacité maximale de la cuve (${capacity.toLocaleString('fr-FR')} L).`);
+      return;
+    }
+
     updateStockConfig({
-      initialStock: Number(initialStockInput) || 0,
-      tankCapacity: Number(tankCapacityInput) || 0,
+      initialStock: initStock,
+      tankCapacity: capacity,
       alertThreshold: Number(alertThresholdInput) || 0,
       criticalThreshold: Number(criticalThresholdInput) || 0,
       tankName: tankNameInput.trim() || 'Cuve Principale',
@@ -71,6 +82,11 @@ export const StockManagementView: React.FC = () => {
     e.preventDefault();
     const measured = Number(physicalMeasuredStock);
     if (isNaN(measured) || measured < 0) return;
+
+    if (stockConfig.tankCapacity > 0 && measured > stockConfig.tankCapacity) {
+      alert(`Le stock physique mesuré (${measured.toLocaleString('fr-FR')} L) ne peut pas dépasser la capacité maximale de la cuve (${stockConfig.tankCapacity.toLocaleString('fr-FR')} L).`);
+      return;
+    }
 
     const diff = measured - currentStockLiters;
     addStockAdjustment({
@@ -179,15 +195,13 @@ export const StockManagementView: React.FC = () => {
             </div>
           </div>
 
-          {/* Graphical Tank Container */}
-          <div className="relative border-4 border-slate-700 bg-slate-100 rounded-3xl h-36 overflow-hidden shadow-inner flex flex-col justify-end">
+          {/* Graphical Tank Container - Sleek Compact Design */}
+          <div className="relative border-2 border-slate-700 bg-slate-100 rounded-2xl h-20 overflow-hidden shadow-inner flex flex-col justify-end">
             {/* Background Tick Marks */}
-            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none p-2 opacity-30">
+            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none px-3 py-1 opacity-40">
               <div className="border-b border-dashed border-slate-400 w-full flex justify-between text-[9px] font-mono">
-                <span>100% ({stockConfig.tankCapacity.toLocaleString('fr-FR')} L)</span>
-              </div>
-              <div className="border-b border-dashed border-slate-400 w-full flex justify-between text-[9px] font-mono">
-                <span>50%</span>
+                <span>Plein (100%) : {stockConfig.tankCapacity.toLocaleString('fr-FR')} L</span>
+                <span>Capacité Max</span>
               </div>
               <div className="border-b border-dashed border-red-400 w-full flex justify-between text-[9px] font-mono text-red-700 font-bold">
                 <span>Seuil critique ({stockConfig.criticalThreshold} L)</span>
@@ -199,17 +213,17 @@ export const StockManagementView: React.FC = () => {
               className={`w-full bg-gradient-to-t ${gaugeBg} transition-all duration-700 relative`}
               style={{ height: `${stockPercentage}%` }}
             >
-              {/* Liquid Waves Animation Effect */}
-              <div className="absolute top-0 left-0 right-0 h-2 bg-white/30 backdrop-blur-2xs" />
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-white/30 backdrop-blur-2xs" />
             </div>
 
-            {/* Floating Liters Label */}
+            {/* Floating Liters Label - Compact */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="bg-slate-900/80 backdrop-blur-xs text-white px-4 py-2 rounded-xl shadow-lg border border-slate-700/50 text-center">
-                <span className="text-xs uppercase font-bold text-slate-300 block">Volume Disponible</span>
-                <span className="text-2xl font-black font-mono tracking-tight text-amber-400">
-                  {currentStockLiters.toLocaleString('fr-FR')} <span className="text-sm font-medium text-white">Litres</span>
+              <div className="bg-slate-900/85 backdrop-blur-xs text-white px-3 py-1 rounded-xl shadow-md border border-slate-700/50 text-center flex items-center gap-2">
+                <span className="text-[10px] uppercase font-bold text-slate-300">Volume :</span>
+                <span className="text-base font-black font-mono tracking-tight text-amber-400">
+                  {currentStockLiters.toLocaleString('fr-FR')} L
                 </span>
+                <span className="text-[11px] font-bold text-slate-200">({stockPercentage}%)</span>
               </div>
             </div>
           </div>

@@ -269,10 +269,16 @@ export const DeliveryVoucherModal: React.FC<DeliveryVoucherModalProps> = ({ deli
         </div>
 
         {/* Bottom Bar Actions (Hidden on print) */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between print:hidden">
-          <span className="text-xs text-slate-500">
-            Enregistrement N° {delivery.id} • Stock automatiquement actualisé
-          </span>
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 print:hidden">
+          <button
+            onClick={onClose}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold border border-slate-300 transition-all cursor-pointer shadow-xs"
+            title="Fermer et retourner au tableau des livraisons"
+          >
+            <ArrowLeft className="w-4 h-4 text-emerald-700" />
+            <span>← Retour aux livraisons</span>
+          </button>
+          
           <div className="flex items-center gap-2">
             <button
               onClick={handleDownload}

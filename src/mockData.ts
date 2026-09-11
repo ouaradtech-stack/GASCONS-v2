@@ -12,7 +12,7 @@ export const initialCompanyProfile: CompanyProfile = {
   address: 'Zone Industrielle Voie 04, Lot 18',
   city: 'Alger / Paris',
   country: 'Algérie / France',
-  currency: 'DZD',
+  currency: 'DHS',
   headerTagline: 'Gestion & Contrôle des Consommations de Gasoil & Flotte',
 };
 

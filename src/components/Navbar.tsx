@@ -18,6 +18,7 @@ import {
   Shield,
   Truck,
   User,
+  Users,
   Wrench,
   X,
 } from 'lucide-react';
@@ -25,7 +26,7 @@ import { useGascons } from '../context/GasconsContext';
 
 interface NavbarProps {
   currentTab: string;
-  onNavigate: (tab: string) => void;
+  onNavigate: (tab: string, subTab?: string) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
@@ -364,13 +365,16 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
                   <div className="pt-2 mt-2 border-t border-slate-100 px-2 space-y-1">
                     <button
                       onClick={() => {
-                        onNavigate('base-donnees');
+                        onNavigate('base-donnees', 'users');
                         setIsUserMenuOpen(false);
                       }}
-                      className="w-full text-left py-1 text-xs text-blue-600 hover:underline font-semibold flex items-center justify-between"
+                      className="w-full text-left py-1.5 px-2 rounded-lg text-xs text-blue-700 hover:bg-blue-50 font-bold flex items-center justify-between cursor-pointer transition-colors"
                     >
-                      <span>Gérer les comptes & sous-admins</span>
-                      <span>→</span>
+                      <span className="flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-blue-600" />
+                        Gérer les comptes & sous-admins
+                      </span>
+                      <span className="font-mono">→</span>
                     </button>
 
                     <button
