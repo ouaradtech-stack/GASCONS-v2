@@ -9,6 +9,7 @@ import {
   Check,
   CheckCircle2,
   Cloud,
+  CreditCard,
   Database,
   Download,
   Edit2,
@@ -55,6 +56,7 @@ import { CompanySetupModal } from './CompanySetupModal';
 import { SupabaseSetupModal } from './SupabaseSetupModal';
 import { SupabaseService } from '../services/supabaseService';
 import { VehicleMaintenanceView } from './VehicleMaintenanceView';
+import { ClientSubscriptionsView } from './ClientSubscriptionsView';
 import { ImportVehiclesModal } from './ImportVehiclesModal';
 import {
   exportVehiclesToCSV,
@@ -65,7 +67,7 @@ import {
 } from '../utils/exportHelpers';
 
 interface AdminDataViewProps {
-  initialTab?: 'vehicles' | 'maintenance' | 'categories' | 'users' | 'departments' | 'suppliers' | 'company' | 'backup';
+  initialTab?: 'vehicles' | 'maintenance' | 'categories' | 'users' | 'subscriptions' | 'departments' | 'suppliers' | 'company' | 'backup';
 }
 
 export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
@@ -110,7 +112,7 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
     sqlStatus,
     supabaseStatus,
     firebaseAuthUser,
-    signInWithGoogle,
+    clientSubscriptions,
     vehicleMaintenances,
     lastImportedVehicleBatch,
     importVehicleBatch,
@@ -120,15 +122,19 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
     syncAllToSupabase,
   } = useGascons();
 
-  const [activeTab, setActiveTab] = useState<'vehicles' | 'maintenance' | 'categories' | 'users' | 'departments' | 'suppliers' | 'company' | 'backup'>(
-    initialTab || 'vehicles'
+  const [activeTab, setActiveTab] = useState<'vehicles' | 'maintenance' | 'categories' | 'users' | 'subscriptions' | 'departments' | 'suppliers' | 'company' | 'backup'>(
+    initialTab === 'subscriptions' && !isSuperAdmin ? 'vehicles' : (initialTab || 'vehicles')
   );
 
   React.useEffect(() => {
     if (initialTab) {
-      setActiveTab(initialTab);
+      if (initialTab === 'subscriptions' && !isSuperAdmin) {
+        setActiveTab('vehicles');
+      } else {
+        setActiveTab(initialTab);
+      }
     }
-  }, [initialTab]);
+  }, [initialTab, isSuperAdmin]);
 
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -846,6 +852,20 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
           Comptes & Sous-Admins ({users.length})
         </button>
 
+        {isSuperAdmin && (
+          <button
+            onClick={() => setActiveTab('subscriptions')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+              activeTab === 'subscriptions'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <CreditCard className="w-4 h-4 text-amber-500" />
+            Abonnements & Licences ({clientSubscriptions.length})
+          </button>
+        )}
+
         <button
           onClick={() => setActiveTab('departments')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
@@ -1467,6 +1487,11 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
         </div>
       )}
 
+      {/* SUBSCRIPTIONS TAB - Super Admin Only */}
+      {isSuperAdmin && activeTab === 'subscriptions' && (
+        <ClientSubscriptionsView embedded />
+      )}
+
       {/* 4. DEPARTMENTS TAB */}
       {activeTab === 'departments' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
@@ -1817,62 +1842,34 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
               </div>
             </div>
 
-            {/* Firebase Cloud Firestore Card */}
+            {/* Local & Cloud Sync Status Card */}
             <div className="p-5 rounded-2xl bg-gradient-to-br from-sky-950 via-slate-900 to-sky-950 text-white border border-sky-800/60 shadow-lg flex flex-col justify-between gap-4">
               <div className="flex items-start gap-3.5">
                 <div className="w-11 h-11 rounded-2xl bg-sky-600 text-white flex items-center justify-center font-black text-xl shadow-md shadow-sky-500/30 shrink-0">
-                  <Cloud className="w-6 h-6" />
+                  <ShieldCheck className="w-6 h-6" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-sky-500/30 text-sky-200 border border-sky-400/20">
-                      Firebase & Auth
+                      Authentification
                     </span>
                     <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/30 text-emerald-300 border border-emerald-400/20 flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      {firebaseStatus === 'connected' ? 'En Direct' : 'Prêt'}
+                      Sécurisé
                     </span>
                   </div>
                   <h4 className="text-sm font-black text-white mt-1">
-                    Authentification & Sync
+                    Comptes & Mots de Passe
                   </h4>
                   <p className="text-xs text-slate-300 mt-0.5 truncate">
-                    {firebaseAuthUser ? firebaseAuthUser.email : 'credible-drake-hlcf1'}
+                    Connecté : <span className="font-semibold text-white">{currentUser?.name}</span> ({currentUser?.email})
                   </p>
                 </div>
               </div>
 
-              {!firebaseAuthUser ? (
-                <button
-                  type="button"
-                  onClick={() => signInWithGoogle().catch(console.warn)}
-                  className="w-full py-2 bg-white hover:bg-slate-100 text-slate-900 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow transition-all"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
-                  <span>Connexion Google</span>
-                </button>
-              ) : (
-                <div className="text-[11px] text-emerald-300 bg-emerald-950/60 px-3 py-1.5 rounded-lg border border-emerald-700/50 font-medium truncate text-center">
-                  Compte Google connecté
-                </div>
-              )}
+              <div className="text-[11px] text-emerald-300 bg-emerald-950/60 px-3 py-1.5 rounded-lg border border-emerald-700/50 font-medium truncate text-center">
+                Authentification Email / Mot de passe active
+              </div>
             </div>
           </div>
 

@@ -5,6 +5,7 @@ import {
   Building2,
   ChevronDown,
   Cloud,
+  CreditCard,
   Database,
   Download,
   Droplet,
@@ -37,32 +38,17 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
     isLowStock,
     isCriticalStock,
     currentUser,
-    users,
-    setCurrentUser,
-    firebaseStatus,
-    firebaseAuthUser,
-    signInWithGoogle,
-    signOutFirebase,
     logout,
     isSuperAdmin,
     isFirebasePurged,
     vehicleMaintenances,
+    clientSubscriptions,
   } = useGascons();
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  const handleGoogleLogin = async () => {
-    try {
-      setIsLoggingIn(true);
-      await signInWithGoogle();
-    } catch (err) {
-      console.warn('Google sign-in cancelled or failed', err);
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
+  const isAdminOrSuper = isSuperAdmin || currentUser.role === 'ADMIN';
 
   const navItems = [
     { id: 'dashboard', label: 'Tableau de Bord', icon: BarChart3 },
@@ -71,6 +57,9 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
     { id: 'stock', label: 'Gestion Stock & Cuves', icon: Gauge },
     { id: 'maintenance', label: 'Entretien & Maintenance', icon: Wrench },
     { id: 'rapports', label: 'Rapports & Export', icon: Layers },
+    ...(isSuperAdmin
+      ? [{ id: 'abonnements', label: 'Vente Abonnements', icon: CreditCard }]
+      : []),
     { id: 'base-donnees', label: 'Base de Données', icon: Database },
   ];
 
@@ -229,163 +218,123 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onNavigate }) => {
                 <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden md:block" />
               </button>
 
-              {/* User Switcher Dropdown */}
+              {/* User Dropdown Menu (No Google OAuth, No account switching) */}
               {isUserMenuOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white text-slate-800 rounded-2xl shadow-2xl border border-slate-200 p-2 z-50 animate-in fade-in">
-                  <div className="px-3 py-2 border-b border-slate-100 mb-1">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] uppercase font-bold text-slate-400">Compte Connecté</p>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                <div className="absolute right-0 mt-2 w-80 bg-white text-slate-800 rounded-2xl shadow-2xl border border-slate-200 p-3 z-50 animate-in fade-in">
+                  <div className="pb-3 border-b border-slate-100 mb-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Compte Connecté</p>
+                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
                         isFirebasePurged
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                          : 'bg-sky-100 text-sky-800 border border-sky-300'
+                          : 'bg-blue-100 text-blue-800 border border-blue-300'
                       }`}>
-                        {isFirebasePurged ? 'Supabase Seul' : 'Sync Actif'}
+                        {isFirebasePurged ? 'Base Locale / Supabase' : 'Sync Sécurisée'}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <p className="font-bold text-xs text-slate-900 truncate">{currentUser.name}</p>
-                      {currentUser.role === 'SOUS_ADMIN' && (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 font-bold border border-amber-300">
-                          Sous-Admin
-                        </span>
-                      )}
+
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-xl bg-slate-900 text-amber-400 flex items-center justify-center font-black text-sm shadow-md shrink-0">
+                        {isSuperAdmin ? '👑' : currentUser.avatar || currentUser.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-bold text-sm text-slate-900 truncate">{currentUser.name}</p>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                            isSuperAdmin
+                              ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                              : currentUser.role === 'SOUS_ADMIN'
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : 'bg-blue-100 text-blue-800 border border-blue-200'
+                          }`}>
+                            {isSuperAdmin
+                              ? 'Super-Admin'
+                              : currentUser.role === 'SOUS_ADMIN'
+                              ? 'Sous-Admin'
+                              : currentUser.role}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 truncate mt-0.5">{currentUser.email}</p>
+                        {currentUser.clientCompanyName && (
+                          <p className="text-[11px] font-medium text-amber-800 truncate mt-0.5">
+                            🏢 {currentUser.clientCompanyName}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-[11px] text-slate-500 truncate">{currentUser.email}</p>
-                    {currentUser.clientCompanyName && (
-                      <p className="text-[10px] text-amber-800 font-medium truncate mt-0.5">
-                        🏢 {currentUser.clientCompanyName}
-                      </p>
+
+                    {/* Subscription details if client / sous-admin */}
+                    {(currentUser.role === 'SOUS_ADMIN' || currentUser.subscriptionStatus) && (
+                      <div className="mt-3 p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold text-amber-900">Licence Client</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            currentUser.subscriptionStatus === 'ACTIF' || currentUser.active
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-rose-100 text-rose-800 border border-rose-300'
+                          }`}>
+                            {currentUser.subscriptionStatus === 'ACTIF' || currentUser.active ? 'Active' : 'Suspendue'}
+                          </span>
+                        </div>
+                        {currentUser.maxVehiclesQuota && (
+                          <p className="text-[11px] text-slate-700">
+                            Quota : <strong className="text-slate-900">{currentUser.maxVehiclesQuota} véhicules max</strong>
+                          </p>
+                        )}
+                        {currentUser.subscriptionExpiresAt && (
+                          <p className="text-[11px] text-slate-700">
+                            Échéance : <strong className="text-slate-900">{currentUser.subscriptionExpiresAt}</strong>
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
 
-                  {/* Google Auth Status Section */}
-                  <div className="p-2 mb-1 bg-slate-50 rounded-xl border border-slate-100">
-                    {firebaseAuthUser ? (
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="truncate pr-2">
-                          <p className="text-[10px] text-slate-500 font-medium">Connecté avec Google :</p>
-                          <p className="font-bold text-slate-800 truncate text-[11px]">{firebaseAuthUser.email}</p>
-                        </div>
-                        <button
-                          onClick={signOutFirebase}
-                          className="px-2 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 text-[10px] font-bold text-slate-700 flex items-center gap-1"
-                        >
-                          <LogOut className="w-3 h-3" />
-                          Déconnexion
-                        </button>
-                      </div>
-                    ) : (
+                  {/* Navigation Actions */}
+                  <div className="space-y-1">
+                    {isSuperAdmin && (
                       <button
-                        onClick={handleGoogleLogin}
-                        disabled={isLoggingIn}
-                        className="w-full flex items-center justify-center gap-2 py-1.5 px-2 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 shadow-2xs transition-colors"
+                        onClick={() => {
+                          onNavigate('abonnements');
+                          setIsUserMenuOpen(false);
+                        }}
+                        className="w-full text-left py-2 px-2.5 rounded-xl text-xs text-amber-900 hover:bg-amber-50 font-bold flex items-center justify-between cursor-pointer transition-colors"
                       >
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                          <path
-                            fill="#4285F4"
-                            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                          />
-                          <path
-                            fill="#34A853"
-                            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                          />
-                          <path
-                            fill="#FBBC05"
-                            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                          />
-                          <path
-                            fill="#EA4335"
-                            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                          />
-                        </svg>
-                        <span>{isLoggingIn ? 'Connexion...' : 'Se connecter avec Google'}</span>
+                        <span className="flex items-center gap-2">
+                          <CreditCard className="w-4 h-4 text-amber-600" />
+                          Ventes & Abonnements Clients
+                        </span>
+                        <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded-full font-mono">
+                          {clientSubscriptions.length}
+                        </span>
                       </button>
                     )}
-                  </div>
 
-                  <div className="space-y-1 max-h-56 overflow-y-auto">
-                    {users.map((u) => {
-                      const isSelected = u.id === currentUser.id;
-                      const isSuper = u.role === 'SUPER_ADMIN' || u.email.toLowerCase() === 'ouaradtech@gmail.com';
-                      const isSous = u.role === 'SOUS_ADMIN';
-                      const isSuspended = u.active === false || u.subscriptionStatus === 'SUSPENDU';
-
-                      return (
-                        <button
-                          key={u.id}
-                          onClick={() => {
-                            setCurrentUser(u);
-                            setIsUserMenuOpen(false);
-                          }}
-                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-colors ${
-                            isSelected
-                              ? 'bg-blue-50 text-blue-900 font-bold border border-blue-200'
-                              : isSuspended
-                              ? 'bg-rose-50/50 hover:bg-rose-100/60 text-slate-700'
-                              : 'hover:bg-slate-50 text-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 text-left truncate">
-                            <span
-                              className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
-                                isSuper
-                                  ? 'bg-purple-900 text-amber-300'
-                                  : isSous
-                                  ? 'bg-amber-600 text-white'
-                                  : 'bg-slate-200 text-slate-800'
-                              }`}
-                            >
-                              {isSuper ? '👑' : u.avatar || u.name[0]}
-                            </span>
-                            <div className="truncate">
-                              <div className="font-semibold text-xs leading-tight truncate flex items-center gap-1">
-                                <span>{u.name}</span>
-                                {isSuspended && (
-                                  <span className="text-[9px] font-bold text-rose-600 bg-rose-100 px-1 rounded">
-                                    Désactivé
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] text-slate-400 truncate">
-                                {isSuper
-                                  ? 'Super Administrateur'
-                                  : isSous
-                                  ? `Sous-Admin • ${u.clientCompanyName || 'Client'}`
-                                  : u.role}
-                              </div>
-                            </div>
-                          </div>
-                          {isSelected && <span className="text-blue-600 font-bold shrink-0 ml-1">✓</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="pt-2 mt-2 border-t border-slate-100 px-2 space-y-1">
-                    <button
-                      onClick={() => {
-                        onNavigate('base-donnees', 'users');
-                        setIsUserMenuOpen(false);
-                      }}
-                      className="w-full text-left py-1.5 px-2 rounded-lg text-xs text-blue-700 hover:bg-blue-50 font-bold flex items-center justify-between cursor-pointer transition-colors"
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <Users className="w-3.5 h-3.5 text-blue-600" />
-                        Gérer les comptes & sous-admins
-                      </span>
-                      <span className="font-mono">→</span>
-                    </button>
+                    {isAdminOrSuper && (
+                      <button
+                        onClick={() => {
+                          onNavigate('base-donnees', 'users');
+                          setIsUserMenuOpen(false);
+                        }}
+                        className="w-full text-left py-2 px-2.5 rounded-xl text-xs text-blue-700 hover:bg-blue-50 font-bold flex items-center justify-between cursor-pointer transition-colors"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Users className="w-4 h-4 text-blue-600" />
+                          Gérer les Comptes & Accès
+                        </span>
+                        <span className="font-mono text-slate-400">→</span>
+                      </button>
+                    )}
 
                     <button
                       onClick={() => {
                         setIsUserMenuOpen(false);
                         logout();
                       }}
-                      className="w-full text-left py-1.5 px-2 rounded-lg text-xs text-red-600 hover:bg-red-50 font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="w-full text-left py-2 px-2.5 rounded-xl text-xs text-red-600 hover:bg-red-50 font-bold flex items-center gap-2 transition-colors cursor-pointer pt-2 border-t border-slate-100 mt-1"
                     >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Se déconnecter (Verrouiller)</span>
+                      <LogOut className="w-4 h-4 text-red-600" />
+                      <span>Se Déconnecter (Verrouiller)</span>
                     </button>
                   </div>
                 </div>

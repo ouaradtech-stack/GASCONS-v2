@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import {
   AdminDataView,
 } from './components/AdminDataView';
+import { ClientSubscriptionsView } from './components/ClientSubscriptionsView';
 import { CompanySetupModal } from './components/CompanySetupModal';
 import { Dashboard } from './components/Dashboard';
 import { FuelDeliveryView } from './components/FuelDeliveryView';
@@ -23,11 +24,17 @@ import { FuelExit } from './types';
 import { Fuel, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
 function GasconsApp() {
-  const { companyProfile, isAuthenticated } = useGascons();
+  const { companyProfile, isAuthenticated, isSuperAdmin } = useGascons();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
-  const [adminSubTab, setAdminSubTab] = useState<'vehicles' | 'maintenance' | 'categories' | 'users' | 'departments' | 'suppliers' | 'company' | 'backup'>('vehicles');
+  const [adminSubTab, setAdminSubTab] = useState<'vehicles' | 'maintenance' | 'categories' | 'users' | 'subscriptions' | 'departments' | 'suppliers' | 'company' | 'backup'>('vehicles');
   const [selectedVoucher, setSelectedVoucher] = useState<FuelExit | null>(null);
   const [recentSuccessTicket, setRecentSuccessTicket] = useState<FuelExit | null>(null);
+
+  React.useEffect(() => {
+    if (currentTab === 'abonnements' && !isSuperAdmin) {
+      setCurrentTab('dashboard');
+    }
+  }, [currentTab, isSuperAdmin]);
 
   const handleNavigate = (tab: string, subTab?: string) => {
     setCurrentTab(tab);
@@ -142,6 +149,8 @@ function GasconsApp() {
         {currentTab === 'maintenance' && <VehicleMaintenanceView />}
 
         {currentTab === 'rapports' && <ReportsExportView />}
+
+        {currentTab === 'abonnements' && isSuperAdmin && <ClientSubscriptionsView />}
 
         {currentTab === 'base-donnees' && <AdminDataView initialTab={adminSubTab} />}
       </main>

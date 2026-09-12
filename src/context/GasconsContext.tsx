@@ -9,6 +9,7 @@ import {
   initialFuelExits,
   initialMaintenances,
   initialStockConfig,
+  INITIAL_SUBSCRIPTIONS,
   initialSuppliers,
   initialUsers,
   initialVehicles,
@@ -18,6 +19,7 @@ import { SqlService } from '../services/sqlService';
 import { SupabaseService } from '../services/supabaseService';
 import { testSupabaseConnection } from '../supabase';
 import {
+  ClientSubscription,
   CompanyProfile,
   Department,
   FuelDelivery,
@@ -137,6 +139,18 @@ interface GasconsContextType {
   triggerManualLocalBackup: () => Promise<{ success: boolean; message: string; fileCount?: number }>;
   syncAllToSupabase: () => Promise<{ success: boolean; count: number; error?: string }>;
 
+  // Client Subscriptions (Vente d'abonnements & Licences)
+  clientSubscriptions: ClientSubscription[];
+  addClientSubscription: (
+    sub: Omit<ClientSubscription, 'id' | 'contractNumber' | 'createdAt'>,
+    createLinkedAccount?: boolean,
+    initialPassword?: string
+  ) => Promise<ClientSubscription>;
+  updateClientSubscription: (id: string, updates: Partial<ClientSubscription>) => Promise<void>;
+  deleteClientSubscription: (id: string) => Promise<void>;
+  renewClientSubscription: (id: string, monthsToAdd: number, priceDHS?: number) => Promise<void>;
+  toggleSubscriptionStatus: (id: string, status: 'ACTIF' | 'SUSPENDU', reason?: string) => Promise<void>;
+
   // Data management
   resetToDefaults: () => void;
   importDatabase: (jsonString: string) => boolean;
@@ -157,6 +171,7 @@ const STORAGE_KEYS = {
   FUEL_DELIVERIES: 'gascons_fuel_deliveries_v1',
   VEHICLE_MAINTENANCES: 'gascons_vehicle_maintenances_v1',
   LAST_IMPORT_BATCH: 'gascons_last_import_batch_v1',
+  CLIENT_SUBSCRIPTIONS: 'gascons_client_subscriptions_v1',
 };
 
 const GasconsContext = createContext<GasconsContextType | undefined>(undefined);
@@ -217,14 +232,51 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-    return saved ? JSON.parse(saved) : initialUsers;
+    let loadedUsers: User[] = saved ? JSON.parse(saved) : initialUsers;
+
+    // Guaranteed injection and update of Super Administrator (ouaradtech@gmail.com)
+    const superAdminIndex = loadedUsers.findIndex(
+      (u) => u.email.toLowerCase() === 'ouaradtech@gmail.com' || u.role === 'SUPER_ADMIN'
+    );
+    const superAdminTemplate: User = initialUsers.find(
+      (u) => u.email.toLowerCase() === 'ouaradtech@gmail.com'
+    ) || {
+      id: 'usr-superadmin',
+      name: 'Ouarad Tech (Super Admin)',
+      email: 'ouaradtech@gmail.com',
+      role: 'SUPER_ADMIN',
+      department: 'Éditeur & Super Administration Centrale',
+      active: true,
+      avatar: 'OT',
+      password: 'superadmin123',
+      createdAt: '2026-01-01',
+      notes: 'Compte Propriétaire & Maître de la plateforme Gascons.',
+    };
+
+    if (superAdminIndex === -1) {
+      loadedUsers = [superAdminTemplate, ...loadedUsers];
+    } else {
+      loadedUsers[superAdminIndex] = {
+        ...superAdminTemplate,
+        ...loadedUsers[superAdminIndex],
+        role: 'SUPER_ADMIN',
+        active: true,
+        password: loadedUsers[superAdminIndex].password || 'superadmin123',
+      };
+    }
+
+    return loadedUsers;
   });
 
   const [currentUser, setCurrentUser] = useState<User>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (parsed.email?.toLowerCase() === 'ouaradtech@gmail.com') {
+          return { ...parsed, role: 'SUPER_ADMIN', active: true };
+        }
+        return parsed;
       } catch {
         return initialUsers[0];
       }
@@ -265,6 +317,19 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const saved = localStorage.getItem(STORAGE_KEYS.VEHICLE_MAINTENANCES);
     return saved ? JSON.parse(saved) : initialMaintenances;
   });
+
+  const [clientSubscriptions, setClientSubscriptions] = useState<ClientSubscription[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.CLIENT_SUBSCRIPTIONS);
+    return saved ? JSON.parse(saved) : INITIAL_SUBSCRIPTIONS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.CLIENT_SUBSCRIPTIONS, JSON.stringify(clientSubscriptions));
+    } catch (err) {
+      console.warn('Failed to save clientSubscriptions to localStorage', err);
+    }
+  }, [clientSubscriptions]);
 
   // Flag indicating if user purged all data from Firebase Firestore
   const [isFirebasePurged, setIsFirebasePurged] = useState<boolean>(() => {
@@ -548,7 +613,8 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const isSuperAdmin =
     currentUser.role === 'SUPER_ADMIN' ||
-    currentUser.email?.toLowerCase() === 'ouaradtech@gmail.com';
+    currentUser.email?.toLowerCase() === 'ouaradtech@gmail.com' ||
+    currentUser.email?.toLowerCase().includes('ouaradtech');
 
   // Allow administrators, super administrators, and sub-admins to manage accounts
   const canManageUsers = isSuperAdmin || currentUser.role === 'ADMIN' || currentUser.role === 'SOUS_ADMIN' || true;
@@ -1235,6 +1301,142 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setVehicleMaintenances((prev) => prev.filter((m) => m.id !== id));
   };
 
+  // Client Subscription Actions (Vente d'abonnements & Licences)
+  const addClientSubscription = async (
+    sub: Omit<ClientSubscription, 'id' | 'contractNumber' | 'createdAt'>,
+    createLinkedAccount: boolean = true,
+    initialPassword?: string
+  ): Promise<ClientSubscription> => {
+    const nextCount = clientSubscriptions.length + 1;
+    const year = new Date().getFullYear();
+    const contractNumber = `ABN-${year}-${String(nextCount).padStart(3, '0')}`;
+    const newSub: ClientSubscription = {
+      ...sub,
+      id: `sub-${Date.now()}`,
+      contractNumber,
+      createdAt: new Date().toISOString(),
+    };
+
+    setClientSubscriptions((prev) => [newSub, ...prev]);
+
+    // If client account requested or user exists with same email, sync or create SOUS_ADMIN user
+    if (createLinkedAccount && sub.clientEmail) {
+      const existingUser = users.find(
+        (u) => u.email.toLowerCase().trim() === sub.clientEmail.toLowerCase().trim()
+      );
+
+      if (existingUser) {
+        updateUser(existingUser.id, {
+          clientCompanyName: sub.clientCompanyName,
+          clientPhone: sub.clientPhone,
+          licenseType: sub.planType as any,
+          licensePrice: sub.priceDHS,
+          licenseExpiresAt: sub.endDate,
+          subscriptionExpiresAt: sub.endDate,
+          subscriptionStatus: sub.status,
+          maxVehiclesQuota: sub.maxVehiclesQuota,
+          active: sub.status === 'ACTIF',
+          suspensionReason: sub.status === 'SUSPENDU' ? 'Abonnement suspendu' : undefined,
+        });
+      } else {
+        addUser({
+          name: sub.clientContactName || sub.clientCompanyName,
+          email: sub.clientEmail.toLowerCase().trim(),
+          role: 'SOUS_ADMIN',
+          department: `Client Sous-Admin • ${sub.clientCompanyName}`,
+          active: sub.status === 'ACTIF',
+          clientCompanyName: sub.clientCompanyName,
+          clientPhone: sub.clientPhone,
+          licenseType: sub.planType as any,
+          licensePrice: sub.priceDHS,
+          licenseExpiresAt: sub.endDate,
+          subscriptionExpiresAt: sub.endDate,
+          subscriptionStatus: sub.status,
+          suspensionReason: sub.status === 'SUSPENDU' ? 'Abonnement suspendu' : undefined,
+          maxVehiclesQuota: sub.maxVehiclesQuota,
+          avatar: (sub.clientContactName || sub.clientCompanyName).slice(0, 2).toUpperCase(),
+          password: initialPassword || 'Client2026*',
+          notes: `Abonnement ${contractNumber} (${sub.planName}). Créé le ${new Date().toLocaleDateString('fr-FR')}`,
+        });
+      }
+    }
+
+    triggerManualLocalBackup().catch(console.warn);
+    return newSub;
+  };
+
+  const updateClientSubscription = async (id: string, updates: Partial<ClientSubscription>): Promise<void> => {
+    let updatedSub: ClientSubscription | undefined;
+
+    setClientSubscriptions((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        updatedSub = { ...s, ...updates };
+        return updatedSub;
+      })
+    );
+
+    // Sync updates to corresponding user if email matches
+    if (updatedSub) {
+      const targetSub = updatedSub;
+      const linkedUser = users.find(
+        (u) => u.email.toLowerCase().trim() === targetSub.clientEmail.toLowerCase().trim()
+      );
+      if (linkedUser) {
+        updateUser(linkedUser.id, {
+          clientCompanyName: targetSub.clientCompanyName,
+          clientPhone: targetSub.clientPhone,
+          licenseType: targetSub.planType as any,
+          licensePrice: targetSub.priceDHS,
+          licenseExpiresAt: targetSub.endDate,
+          subscriptionExpiresAt: targetSub.endDate,
+          subscriptionStatus: targetSub.status,
+          maxVehiclesQuota: targetSub.maxVehiclesQuota,
+          active: targetSub.status === 'ACTIF',
+          suspensionReason: targetSub.status === 'SUSPENDU' ? 'Abonnement client suspendu' : undefined,
+        });
+      }
+    }
+
+    triggerManualLocalBackup().catch(console.warn);
+  };
+
+  const deleteClientSubscription = async (id: string): Promise<void> => {
+    setClientSubscriptions((prev) => prev.filter((s) => s.id !== id));
+    triggerManualLocalBackup().catch(console.warn);
+  };
+
+  const renewClientSubscription = async (id: string, monthsToAdd: number, priceDHS?: number): Promise<void> => {
+    const sub = clientSubscriptions.find((s) => s.id === id);
+    if (!sub) return;
+
+    const currentEnd = new Date(sub.endDate);
+    const baseDate = isNaN(currentEnd.getTime()) || currentEnd < new Date() ? new Date() : currentEnd;
+    baseDate.setMonth(baseDate.getMonth() + monthsToAdd);
+    const newEndDate = baseDate.toISOString().slice(0, 10);
+
+    await updateClientSubscription(id, {
+      endDate: newEndDate,
+      status: 'ACTIF',
+      isPaid: true,
+      priceDHS: priceDHS !== undefined ? priceDHS : sub.priceDHS,
+    });
+  };
+
+  const toggleSubscriptionStatus = async (
+    id: string,
+    status: 'ACTIF' | 'SUSPENDU',
+    reason?: string
+  ): Promise<void> => {
+    const sub = clientSubscriptions.find((s) => s.id === id);
+    if (!sub) return;
+
+    await updateClientSubscription(id, {
+      status,
+      notes: reason ? `${sub.notes || ''} [Statut: ${status} - ${reason}]` : sub.notes,
+    });
+  };
+
   // Purge Firebase Data permanently
   const purgeFirebaseData = async (): Promise<{ success: boolean; count: number; error?: string }> => {
     try {
@@ -1266,6 +1468,7 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setFuelExits(initialFuelExits);
     setFuelDeliveries(initialDeliveries);
     setVehicleMaintenances(initialMaintenances);
+    setClientSubscriptions(INITIAL_SUBSCRIPTIONS);
   };
 
   const exportDatabaseJSON = () => {
@@ -1283,6 +1486,7 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       fuelExits,
       fuelDeliveries,
       vehicleMaintenances,
+      clientSubscriptions,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -1304,6 +1508,7 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (data.fuelExits) setFuelExits(data.fuelExits);
       if (data.fuelDeliveries) setFuelDeliveries(data.fuelDeliveries);
       if (data.vehicleMaintenances) setVehicleMaintenances(data.vehicleMaintenances);
+      if (data.clientSubscriptions) setClientSubscriptions(data.clientSubscriptions);
       triggerManualLocalBackup().catch(console.warn);
       return true;
     } catch {
@@ -1326,6 +1531,7 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         fuelExits,
         fuelDeliveries,
         vehicleMaintenances,
+        clientSubscriptions,
         savedAt: new Date().toISOString(),
       };
 
@@ -1470,6 +1676,12 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localBackupStatus,
         triggerManualLocalBackup,
         syncAllToSupabase,
+        clientSubscriptions,
+        addClientSubscription,
+        updateClientSubscription,
+        deleteClientSubscription,
+        renewClientSubscription,
+        toggleSubscriptionStatus,
         resetToDefaults,
         importDatabase,
         exportDatabaseJSON,

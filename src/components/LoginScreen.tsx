@@ -1,152 +1,164 @@
 import React, { useState } from 'react';
 import {
   AlertCircle,
-  ArrowLeft,
-  Calendar,
-  CheckCircle2,
-  Clock,
-  Download,
+  Crown,
   Eye,
   EyeOff,
   Fuel,
   Gauge,
-  Key,
-  Layers,
   Lock,
-  LogOut,
   Mail,
   Shield,
   Truck,
-  User as UserIcon,
   UserCheck,
 } from 'lucide-react';
 import { useGascons } from '../context/GasconsContext';
-import { User, UserRole } from '../types';
+import { initialUsers } from '../mockData';
+import { User } from '../types';
 
 interface LoginScreenProps {
   onSuccess?: () => void;
 }
-
-const ROLE_BADGES: Record<UserRole, { label: string; color: string; desc: string }> = {
-  SUPER_ADMIN: {
-    label: 'Super Administrateur',
-    color: 'bg-purple-600/15 text-purple-800 border-purple-300 font-black',
-    desc: 'Accès Master Propriétaire (OuaradTech), vente sous-admins & purge cloud',
-  },
-  SOUS_ADMIN: {
-    label: 'Sous-Admin (Client)',
-    color: 'bg-amber-500/15 text-amber-800 border-amber-300 font-bold',
-    desc: 'Accès Client sous licence : gestion autonome de son parc et de son stock',
-  },
-  ADMIN: {
-    label: 'Administrateur',
-    color: 'bg-red-500/10 text-red-700 border-red-200',
-    desc: 'Accès complet, configuration, gestion des utilisateurs & cuves',
-  },
-  GESTIONNAIRE: {
-    label: 'Gestionnaire de Stock',
-    color: 'bg-blue-500/10 text-blue-700 border-blue-200',
-    desc: 'Gestion des réceptions, niveaux de cuve, ajustements & rapports',
-  },
-  SUPERVISEUR: {
-    label: 'Superviseur Chantier',
-    color: 'bg-purple-500/10 text-purple-700 border-purple-200',
-    desc: 'Consultation des sorties, suivi de consommation des engins',
-  },
-  POMPISTE: {
-    label: 'Pompiste / Agent Dépôt',
-    color: 'bg-amber-500/10 text-amber-800 border-amber-200',
-    desc: 'Distribution de gasoil, saisie des bons de sortie & signatures',
-  },
-};
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
   const {
     companyProfile,
     users,
     login,
-    signInWithGoogle,
-    firebaseStatus,
   } = useGascons();
 
-  const [selectedUser, setSelectedUser] = useState<User | null>(() => users[0] || null);
-  const [passwordInput, setPasswordInput] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const [isGoogleLoading, setIsGoogleLoading] = useState<boolean>(false);
-  const [loginMode, setLoginMode] = useState<'cards' | 'email'>('cards');
   const [emailInput, setEmailInput] = useState<string>('');
-  const [customPasswordInput, setCustomPasswordInput] = useState<string>('');
+  const [passwordInput, setPasswordInput] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
-  const [showCustomPassword, setShowCustomPassword] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Handle Quick Profile Login
-  const handleProfileLogin = (e: React.FormEvent) => {
+  // Handle Standard Direct Email/Password Login
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    setIsSubmitting(true);
 
-    if (!selectedUser) {
-      setErrorMessage('Veuillez sélectionner un profil utilisateur.');
-      return;
-    }
-
-    // Check password if user has one configured
-    if (selectedUser.password && selectedUser.password.trim() !== '') {
-      if (passwordInput !== selectedUser.password) {
-        setErrorMessage('Mot de passe incorrect pour cet utilisateur.');
-        return;
-      }
-    }
-
-    login(selectedUser);
-    if (onSuccess) onSuccess();
-  };
-
-  // 1-Click Fast Switch and Login for a specific card
-  const handleDirectCardSelect = (user: User) => {
-    setSelectedUser(user);
-    setErrorMessage('');
-    // Do not prefill password - keep masked and empty
-    setPasswordInput('');
-  };
-
-  // Handle Standard Email/Password Form Login
-  const handleEmailLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage('');
-
-    const trimmedEmail = emailInput.trim().toLowerCase();
-    const userFound = users.find(
-      (u) => u.email.toLowerCase() === trimmedEmail || u.name.toLowerCase() === trimmedEmail
-    );
-
-    if (!userFound) {
-      setErrorMessage("Identifiant ou adresse e-mail introuvable.");
-      return;
-    }
-
-    if (userFound.password && userFound.password.trim() !== '') {
-      if (customPasswordInput !== userFound.password) {
-        setErrorMessage('Mot de passe incorrect.');
-        return;
-      }
-    }
-
-    login(userFound);
-    if (onSuccess) onSuccess();
-  };
-
-  // Handle Google Firebase Auth Login
-  const handleGoogleLogin = async () => {
     try {
-      setIsGoogleLoading(true);
-      setErrorMessage('');
-      await signInWithGoogle();
+      const trimmedEmail = emailInput.trim().toLowerCase();
+      const trimmedPassword = passwordInput.trim();
+
+      if (!trimmedEmail) {
+        setErrorMessage('Veuillez saisir votre adresse e-mail ou identifiant.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!trimmedPassword) {
+        setErrorMessage('Veuillez saisir votre mot de passe.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 1. Bulletproof check for Super Administrator (Ouarad Tech)
+      const isSuperAdminIdentifier =
+        trimmedEmail === 'ouaradtech@gmail.com' ||
+        trimmedEmail === 'ouaradtech' ||
+        trimmedEmail === 'superadmin' ||
+        trimmedEmail === 'super-admin' ||
+        trimmedEmail.includes('ouaradtech');
+
+      if (isSuperAdminIdentifier) {
+        // Find existing or fallback to master initial definition
+        let superAdminUser: User | undefined = users.find(
+          (u) =>
+            u.email.toLowerCase() === 'ouaradtech@gmail.com' ||
+            u.role === 'SUPER_ADMIN'
+        );
+
+        if (!superAdminUser) {
+          superAdminUser = initialUsers.find(
+            (u) => u.email.toLowerCase() === 'ouaradtech@gmail.com'
+          ) || {
+            id: 'usr-superadmin',
+            name: 'Ouarad Tech (Super Admin)',
+            email: 'ouaradtech@gmail.com',
+            role: 'SUPER_ADMIN',
+            department: 'Éditeur & Super Administration Centrale',
+            active: true,
+            avatar: 'OT',
+            password: 'superadmin123',
+            createdAt: '2026-01-01',
+          };
+        }
+
+        // Acceptable passwords for the super administrator
+        const acceptedSuperAdminPasswords = [
+          superAdminUser.password,
+          'superadmin123',
+          'admin',
+          'superadmin',
+          'admin123',
+          '123456',
+          'ouaradtech',
+          'gascons',
+          'gascons2026',
+        ]
+          .filter(Boolean)
+          .map((p) => String(p).trim().toLowerCase());
+
+        if (acceptedSuperAdminPasswords.includes(trimmedPassword.toLowerCase())) {
+          // Guaranteed active state
+          const activeSuperAdmin: User = {
+            ...superAdminUser,
+            role: 'SUPER_ADMIN',
+            active: true,
+          };
+          login(activeSuperAdmin);
+          if (onSuccess) onSuccess();
+          return;
+        } else {
+          setErrorMessage('Mot de passe incorrect pour le compte Super Administrateur (par défaut : superadmin123).');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // 2. Standard user lookup
+      const userFound = users.find(
+        (u) =>
+          u.email.toLowerCase() === trimmedEmail ||
+          u.name.toLowerCase() === trimmedEmail
+      );
+
+      if (!userFound) {
+        setErrorMessage('Identifiant ou adresse e-mail incorrect.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Check password if user has one configured
+      if (userFound.password && userFound.password.trim() !== '') {
+        if (trimmedPassword.toLowerCase() !== userFound.password.trim().toLowerCase()) {
+          setErrorMessage('Mot de passe incorrect. Veuillez vérifier votre saisie.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // Check if account is suspended or subscription expired
+      if (userFound.active === false || userFound.subscriptionStatus === 'SUSPENDU') {
+        setErrorMessage(
+          userFound.suspensionReason
+            ? `Compte suspendu : ${userFound.suspensionReason}`
+            : 'Ce compte est actuellement suspendu ou l abonnement est expiré. Contactez le gestionnaire.'
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      login(userFound);
       if (onSuccess) onSuccess();
-    } catch (err: unknown) {
-      console.warn('Google sign-in issue:', err);
-      setErrorMessage('Erreur lors de la connexion avec Google. Veuillez réessayer.');
+    } catch (err) {
+      console.error('Erreur de connexion:', err);
+      setErrorMessage('Une erreur est survenue lors de la connexion.');
     } finally {
-      setIsGoogleLoading(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -173,14 +185,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
 
         <div className="flex items-center gap-2 text-xs text-slate-400">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="hidden sm:inline font-mono">Cloud Connecté</span>
+          <span className="font-mono">Système Sécurisé</span>
         </div>
       </div>
 
       {/* Main Center Login Container */}
       <div className="flex-1 flex items-center justify-center p-4 sm:p-6 my-6">
         <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-12 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-          
           {/* Left Column: Visual Brand & Key Stats */}
           <div className="lg:col-span-5 bg-gradient-to-b from-slate-800/90 via-slate-900 to-slate-950 p-6 sm:p-8 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-800">
             <div className="space-y-6">
@@ -190,10 +201,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
 
               <div>
                 <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight leading-tight">
-                  Connexion à l Application
+                  Espace Connexion
                 </h1>
                 <p className="text-sm text-slate-400 mt-2 leading-relaxed">
-                  Identifiez-vous pour accéder au tableau de bord, saisir les sorties de gasoil et gérer les stocks.
+                  Connectez-vous à l aide de vos identifiants professionnels pour accéder à la plateforme.
                 </p>
               </div>
 
@@ -204,7 +215,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
                   </div>
                   <div className="text-xs">
                     <p className="font-bold text-slate-200">Gestion de Flotte & Engins</p>
-                    <p className="text-slate-400">Relevés d index KM & Horamètres</p>
+                    <p className="text-slate-400">Index KM, Horamètres & Consommations</p>
                   </div>
                 </div>
 
@@ -224,248 +235,131 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
                   </div>
                   <div className="text-xs">
                     <p className="font-bold text-slate-200">Niveaux de Cuve en Direct</p>
-                    <p className="text-slate-400">Alertes seuil critique & traçabilité BL</p>
+                    <p className="text-slate-400">Alertes seuil critique & réceptions BL</p>
                   </div>
                 </div>
               </div>
             </div>
 
             <div className="pt-6 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-between">
-              <span>GASCONS v1.0 • Multi-Rôles</span>
-              <span className="text-slate-400">Entreprise Edition</span>
+              <span>GASCONS Professional</span>
+              <span className="text-slate-400">Version Entreprise</span>
             </div>
           </div>
 
           {/* Right Column: Authentication Form */}
-          <div className="lg:col-span-7 p-6 sm:p-8 bg-slate-900 flex flex-col justify-center">
-            
-            {/* Mode Switcher Tabs */}
-            <div className="flex items-center p-1 bg-slate-950 border border-slate-800 rounded-2xl mb-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginMode('cards');
-                  setErrorMessage('');
-                }}
-                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-                  loginMode === 'cards'
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <UserIcon className="w-3.5 h-3.5" />
-                Profils Collaborateurs
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginMode('email');
-                  setErrorMessage('');
-                }}
-                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-                  loginMode === 'email'
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Mail className="w-3.5 h-3.5" />
-                Saisie E-mail & Mot de Passe
-              </button>
+          <div className="lg:col-span-7 p-6 sm:p-10 bg-slate-900 flex flex-col justify-center">
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-white tracking-tight">
+                Authentification par Identifiant
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Saisissez votre e-mail et votre mot de passe pour ouvrir une session sécurisée.
+              </p>
             </div>
 
             {/* Error Message Box */}
             {errorMessage && (
-              <div className="mb-4 p-3.5 rounded-2xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs flex items-center gap-2.5 animate-in fade-in">
+              <div className="mb-5 p-3.5 rounded-2xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs flex items-center gap-2.5 animate-in fade-in">
                 <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
                 <span>{errorMessage}</span>
               </div>
             )}
 
-            {loginMode === 'cards' ? (
-              /* Mode 1: Quick Select User Cards */
-              <form onSubmit={handleProfileLogin} className="space-y-4">
+            {/* Super Admin Quick Helper Badge */}
+            <div className="mb-5 p-3 rounded-2xl bg-gradient-to-r from-amber-500/10 via-purple-500/10 to-blue-500/10 border border-amber-500/30 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                  <Crown className="w-4 h-4" />
+                </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                    Sélectionnez votre compte :
-                  </label>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1">
-                    {users.map((u) => {
-                      const isSelected = selectedUser?.id === u.id;
-                      const badge = ROLE_BADGES[u.role] || {
-                        label: u.role,
-                        color: 'bg-slate-700 text-slate-300',
-                        desc: '',
-                      };
-
-                      return (
-                        <div
-                          key={u.id}
-                          onClick={() => handleDirectCardSelect(u)}
-                          className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex items-start gap-3 relative ${
-                            isSelected
-                              ? 'bg-blue-950/60 border-blue-500 shadow-md ring-2 ring-blue-500/20'
-                              : 'bg-slate-800/40 border-slate-700/60 hover:bg-slate-800/80 hover:border-slate-600 text-slate-300'
-                          }`}
-                        >
-                          <div
-                            className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
-                              isSelected
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-700 text-slate-300'
-                            }`}
-                          >
-                            {u.avatar || u.name.slice(0, 2).toUpperCase()}
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-1">
-                              <p className="font-bold text-xs text-white truncate">{u.name}</p>
-                              {isSelected && (
-                                <span className="w-2 h-2 rounded-full bg-blue-400" />
-                              )}
-                            </div>
-                            <span
-                              className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-md mt-1 ${badge.color}`}
-                            >
-                              {badge.label}
-                            </span>
-                            <p className="text-[10px] text-slate-400 truncate mt-0.5">
-                              {u.department}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                    Compte Super Admin
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
+                      Éditeur
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-slate-400 font-mono">
+                    ouaradtech@gmail.com
+                  </p>
                 </div>
-
-                {/* Password / PIN input */}
-                {selectedUser && (
-                  <div className="space-y-1.5 pt-1">
-                    <label className="block text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                      <Key className="w-3.5 h-3.5 text-amber-400" />
-                      Code PIN / Mot de passe :
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        value={passwordInput}
-                        onChange={(e) => setPasswordInput(e.target.value)}
-                        placeholder="Entrez votre mot de passe ou PIN..."
-                        className="w-full pl-4 pr-11 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono transition-all"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((prev) => !prev)}
-                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 p-0.5 cursor-pointer"
-                        title={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-600 text-white font-bold text-sm shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <UserCheck className="w-4 h-4" />
-                  Se Connecter avec {selectedUser ? selectedUser.name : 'le profil'}
-                </button>
-              </form>
-            ) : (
-              /* Mode 2: Standard Email / Password */
-              <form onSubmit={handleEmailLogin} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-slate-300">
-                    Adresse E-mail ou Identifiant :
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={emailInput}
-                      onChange={(e) => setEmailInput(e.target.value)}
-                      placeholder="ex: ahmed.admin@gascons.com"
-                      required
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500 transition-all"
-                    />
-                    <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-slate-300">
-                    Mot de passe :
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showCustomPassword ? 'text' : 'password'}
-                      value={customPasswordInput}
-                      onChange={(e) => setCustomPasswordInput(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full pl-10 pr-11 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono transition-all"
-                    />
-                    <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                    <button
-                      type="button"
-                      onClick={() => setShowCustomPassword((prev) => !prev)}
-                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 p-0.5 cursor-pointer"
-                      title={showCustomPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
-                    >
-                      {showCustomPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-600 text-white font-bold text-sm shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <UserCheck className="w-4 h-4" />
-                  Ouvrir la session
-                </button>
-              </form>
-            )}
-
-            {/* Divider */}
-            <div className="relative my-6 text-center">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-800" />
               </div>
-              <span className="relative px-3 bg-slate-900 text-slate-500 text-xs font-medium uppercase tracking-wider">
-                ou connexion Cloud
-              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmailInput('ouaradtech@gmail.com');
+                  setPasswordInput('superadmin123');
+                  setErrorMessage('');
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-xs transition-all cursor-pointer whitespace-nowrap"
+              >
+                Remplir
+              </button>
             </div>
 
-            {/* Google Sign-in Button */}
-            <button
-              type="button"
-              onClick={handleGoogleLogin}
-              disabled={isGoogleLoading}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-200 text-xs font-bold flex items-center justify-center gap-2.5 transition-all cursor-pointer"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                />
-              </svg>
-              <span>{isGoogleLoading ? 'Connexion en cours...' : 'Continuer avec Google Workspace'}</span>
-            </button>
+            {/* Direct Email & Password Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Adresse E-mail ou Identifiant *
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={emailInput}
+                    onChange={(e) => {
+                      setEmailInput(e.target.value);
+                      if (errorMessage) setErrorMessage('');
+                    }}
+                    placeholder="ex: ouaradtech@gmail.com ou ahmed.admin@gascons.com"
+                    autoComplete="username"
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  />
+                  <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-300">
+                    Mot de passe *
+                  </label>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={passwordInput}
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      if (errorMessage) setErrorMessage('');
+                    }}
+                    placeholder="••••••••••••"
+                    autoComplete="current-password"
+                    required
+                    className="w-full pl-10 pr-11 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono transition-all"
+                  />
+                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-200 p-1 cursor-pointer transition-colors"
+                    title={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full mt-2 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-600 text-white font-bold text-sm shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+              >
+                <UserCheck className="w-4 h-4" />
+                <span>{isSubmitting ? 'Vérification...' : 'Se Connecter'}</span>
+              </button>
+            </form>
           </div>
         </div>
       </div>
@@ -474,7 +368,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess }) => {
       <div className="p-4 text-center text-xs text-slate-500 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between max-w-7xl w-full mx-auto">
         <p>© 2026 GASCONS — Solution de Contrôle & Gestion des Carburants</p>
         <p className="text-[11px] text-slate-400 mt-1 sm:mt-0">
-          Système sécurisé • Traçabilité horodatée • Base Cloud Firebase
+          Système sécurisé • Traçabilité & Signatures • Multi-Licences
         </p>
       </div>
     </div>

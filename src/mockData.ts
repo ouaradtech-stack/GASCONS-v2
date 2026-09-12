@@ -1,4 +1,4 @@
-import { CompanyProfile, Department, FuelDelivery, FuelExit, StockConfig, Supplier, User, Vehicle, VehicleCategory, VehicleMaintenance } from './types';
+import { ClientSubscription, CompanyProfile, Department, FuelDelivery, FuelExit, StockConfig, Supplier, User, Vehicle, VehicleCategory, VehicleMaintenance } from './types';
 
 export const initialCompanyProfile: CompanyProfile = {
   isConfigured: false, // Prompt on startup
@@ -783,4 +783,76 @@ export const initialMaintenances: VehicleMaintenance[] = [
     createdAt: '2026-09-02T08:00:00Z',
   },
 ];
+
+export const INITIAL_SUBSCRIPTIONS: ClientSubscription[] = [
+  {
+    id: 'sub-1',
+    contractNumber: 'ABN-2026-001',
+    clientCompanyName: 'Sarl Transport Atlas Express',
+    clientContactName: 'Yacine Belkacem',
+    clientEmail: 'yacine@transport-atlas.dz',
+    clientPhone: '+212 661 44 55 66',
+    clientCity: 'Casablanca',
+    clientTaxId: 'ICE 002345678000091',
+    userId: 'usr-sub-1',
+    planType: 'ANNUEL',
+    planName: 'Formule Annuelle Pro (Flotte 50)',
+    priceDHS: 4500,
+    paymentMethod: 'VIREMENT',
+    paymentReference: 'VIR-BMCE-2026-88',
+    isPaid: true,
+    startDate: '2026-02-15',
+    endDate: '2027-02-15',
+    status: 'ACTIF',
+    maxVehiclesQuota: 50,
+    notes: 'Abonnement annuel réglé par virement bancaire. Renouvellement automatique avec 2 mois offerts.',
+    createdAt: '2026-02-15T09:00:00Z',
+  },
+  {
+    id: 'sub-2',
+    contractNumber: 'ABN-2026-002',
+    clientCompanyName: 'Société BTP Sahel & Carrières',
+    clientContactName: 'Farid Mansouri',
+    clientEmail: 'f.mansouri@sahel-carriere.com',
+    clientPhone: '+212 662 77 88 99',
+    clientCity: 'Tanger',
+    clientTaxId: 'ICE 001987654000034',
+    userId: 'usr-sub-2',
+    planType: 'MENSUEL',
+    planName: 'Formule Mensuelle Starter',
+    priceDHS: 450,
+    paymentMethod: 'CHEQUE',
+    paymentReference: 'CHQ-AWB-449102',
+    isPaid: false,
+    startDate: '2026-08-01',
+    endDate: '2026-08-31',
+    status: 'SUSPENDU',
+    maxVehiclesQuota: 25,
+    notes: 'Abonnement suspendu pour retard de règlement du mois d août. Relances transmises.',
+    createdAt: '2026-08-01T10:30:00Z',
+  },
+  {
+    id: 'sub-3',
+    contractNumber: 'ABN-2026-003',
+    clientCompanyName: 'Maroc Logistique & Frigo',
+    clientContactName: 'Karim Bennani',
+    clientEmail: 'k.bennani@maroc-logistique.ma',
+    clientPhone: '+212 661 11 22 33',
+    clientCity: 'Agadir',
+    clientTaxId: 'ICE 003112233000088',
+    planType: 'TRIMESTRIEL',
+    planName: 'Formule Trimestrielle Business',
+    priceDHS: 1250,
+    paymentMethod: 'VIREMENT',
+    paymentReference: 'VIR-BP-99234',
+    isPaid: true,
+    startDate: '2026-07-01',
+    endDate: '2026-10-01',
+    status: 'ACTIF',
+    maxVehiclesQuota: 30,
+    notes: 'Flotte de camions frigorifiques. Dépôt principal Agadir.',
+    createdAt: '2026-07-01T14:15:00Z',
+  },
+];
+
 

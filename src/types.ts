@@ -18,7 +18,7 @@ export interface User {
   licensePrice?: number | string; // Prix de vente convenu
   licenseExpiresAt?: string; // Date d'expiration de la licence (YYYY-MM-DD)
   subscriptionExpiresAt?: string; // Date d'expiration de l'abonnement
-  subscriptionStatus?: 'ACTIF' | 'SUSPENDU' | 'EXPIRE' | 'EN_ESSAI';
+  subscriptionStatus?: 'ACTIF' | 'SUSPENDU' | 'EXPIRE' | 'EN_ESSAI' | 'EN_ATTENTE';
   suspensionReason?: string; // Motif de désactivation / suspension (ex: impayé, expiration, litige)
   maxVehiclesQuota?: number; // Quota max de véhicules alloués
   notes?: string; // Notes internes Super Admin
@@ -169,6 +169,43 @@ export type MaintenanceServiceType =
   | 'AUTRE';
 
 export type MaintenanceStatus = 'PLANIFIE' | 'EN_COURS' | 'TERMINE' | 'ANNULE';
+
+export type SubscriptionPlanType =
+  | 'MENSUEL'
+  | 'TRIMESTRIEL'
+  | 'SEMESTRIEL'
+  | 'ANNUEL'
+  | 'A_VIE'
+  | 'PACK_FLOTTE_15'
+  | 'PACK_FLOTTE_50'
+  | 'ILLIMITE'
+  | 'SUR_MESURE';
+
+export type SubscriptionPaymentMethod = 'VIREMENT' | 'CHEQUE' | 'ESPECES' | 'CARTE' | 'AUTRE';
+
+export interface ClientSubscription {
+  id: string;
+  contractNumber: string; // e.g. "ABN-2026-001"
+  clientCompanyName: string;
+  clientContactName: string;
+  clientEmail: string;
+  clientPhone?: string;
+  clientCity?: string;
+  clientTaxId?: string; // ICE / IF / RC
+  userId?: string; // Linked sub-admin user ID
+  planType: SubscriptionPlanType;
+  planName: string;
+  priceDHS: number;
+  paymentMethod: SubscriptionPaymentMethod;
+  paymentReference?: string;
+  isPaid: boolean;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  status: 'ACTIF' | 'SUSPENDU' | 'EXPIRE' | 'EN_ATTENTE';
+  maxVehiclesQuota: number;
+  notes?: string;
+  createdAt: string;
+}
 
 export interface VehicleMaintenance {
   id: string;
