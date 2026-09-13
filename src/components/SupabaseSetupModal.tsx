@@ -15,10 +15,13 @@ import {
   UploadCloud,
   X,
   Zap,
+  RotateCcw,
 } from 'lucide-react';
 import { useGascons } from '../context/GasconsContext';
 import {
+  DEFAULT_SUPABASE_CONFIG,
   getStoredSupabaseConfig,
+  normalizeSupabaseUrl,
   saveSupabaseConfig,
   SUPABASE_SQL_SCHEMA,
   testSupabaseConnection,
@@ -45,14 +48,17 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
     fuelDeliveries,
     stockAdjustments,
     users,
+    vehicleMaintenances,
+    clientSubscriptions,
     supabaseStatus,
     setSupabaseStatus,
   } = useGascons();
 
-  const [url, setUrl] = useState('');
-  const [anonKey, setAnonKey] = useState('');
+  const [projectId, setProjectId] = useState(DEFAULT_SUPABASE_CONFIG.projectId);
+  const [url, setUrl] = useState(DEFAULT_SUPABASE_CONFIG.url);
+  const [anonKey, setAnonKey] = useState(DEFAULT_SUPABASE_CONFIG.anonKey);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ connected: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ connected: boolean; message: string; needMigration?: boolean } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncSuccessMessage, setSyncSuccessMessage] = useState('');
   const [isSqlCopied, setIsSqlCopied] = useState(false);
@@ -62,8 +68,9 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       const config = getStoredSupabaseConfig();
-      setUrl(config.url);
-      setAnonKey(config.anonKey);
+      setProjectId(config.projectId || DEFAULT_SUPABASE_CONFIG.projectId);
+      setUrl(config.url || DEFAULT_SUPABASE_CONFIG.url);
+      setAnonKey(config.anonKey || DEFAULT_SUPABASE_CONFIG.anonKey);
       setTestResult(null);
       setSyncSuccessMessage('');
       setSaveMessage('');
@@ -72,8 +79,19 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleResetToDefaults = () => {
+    setProjectId(DEFAULT_SUPABASE_CONFIG.projectId);
+    setUrl(DEFAULT_SUPABASE_CONFIG.url);
+    setAnonKey(DEFAULT_SUPABASE_CONFIG.anonKey);
+    saveSupabaseConfig(DEFAULT_SUPABASE_CONFIG.url, DEFAULT_SUPABASE_CONFIG.anonKey, DEFAULT_SUPABASE_CONFIG.projectId);
+    setSaveMessage('Identifiants du projet bwauklkozmwuunevrpah restaurés !');
+    setTimeout(() => setSaveMessage(''), 3000);
+  };
+
   const handleSave = () => {
-    saveSupabaseConfig(url, anonKey);
+    const cleanUrl = normalizeSupabaseUrl(url);
+    setUrl(cleanUrl);
+    saveSupabaseConfig(cleanUrl, anonKey, projectId);
     setSaveMessage('Paramètres Supabase enregistrés avec succès !');
     setTimeout(() => setSaveMessage(''), 3000);
     handleTestConnection();
@@ -82,7 +100,8 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
   const handleTestConnection = async () => {
     setIsTesting(true);
     setTestResult(null);
-    saveSupabaseConfig(url, anonKey);
+    const cleanUrl = normalizeSupabaseUrl(url);
+    saveSupabaseConfig(cleanUrl, anonKey, projectId);
     const res = await testSupabaseConnection();
     setIsTesting(false);
     setTestResult(res);
@@ -96,7 +115,8 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
   const handleSyncAll = async () => {
     setIsSyncing(true);
     setSyncSuccessMessage('');
-    saveSupabaseConfig(url, anonKey);
+    const cleanUrl = normalizeSupabaseUrl(url);
+    saveSupabaseConfig(cleanUrl, anonKey, projectId);
 
     const result = await SupabaseService.syncAllToSupabase({
       companyProfile,
@@ -109,11 +129,13 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
       fuelDeliveries,
       stockAdjustments,
       users,
+      vehicleMaintenances,
+      clientSubscriptions,
     });
 
     setIsSyncing(false);
     if (result.success) {
-      setSyncSuccessMessage(`✅ Synchronisation réussie ! ${result.count} éléments envoyés vers Supabase.`);
+      setSyncSuccessMessage(`✅ Synchronisation réussie ! ${result.count} éléments envoyés vers votre projet Supabase.`);
       setSupabaseStatus('connected');
     } else {
       setTestResult({
@@ -129,6 +151,8 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
     setTimeout(() => setIsSqlCopied(false), 3000);
   };
 
+  const sqlEditorUrl = `https://supabase.com/dashboard/project/${projectId || DEFAULT_SUPABASE_CONFIG.projectId}/sql/new`;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fadeIn">
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden">
@@ -140,13 +164,13 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-base text-white">Connexion Supabase Database</h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-400/30">
-                  PostgreSQL Cloud
+                <h3 className="font-bold text-base text-white">Intégration Supabase Database</h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-400/30 font-mono">
+                  {projectId || 'bwauklkozmwuunevrpah'}
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                Synchronisation temps réel avec votre projet Supabase
+                Synchronisation temps réel et persistance cloud PostgreSQL
               </p>
             </div>
           </div>
@@ -182,21 +206,45 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
                   <span className={`w-1.5 h-1.5 rounded-full ${
                     supabaseStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
                   }`} />
-                  {supabaseStatus === 'connected' ? 'Connecté & Opérationnel' : 'Non Connecté'}
+                  {supabaseStatus === 'connected' ? 'Connecté au Projet' : 'Déconnecté'}
                 </span>
               </div>
               <p className="mt-1 text-slate-600">
-                Connectez votre projet Supabase en entrant l'URL du projet et la clé publique <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-[11px]">anon</code>.
+                Projet : <strong className="font-mono text-emerald-800">{projectId}</strong>. Les modifications locales et opérations sont synchronisées avec votre base de données distante.
               </p>
             </div>
           </div>
 
           {/* Configuration Form */}
           <div className="space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-200">
-            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500 flex items-center gap-2">
-              <Key className="w-3.5 h-3.5 text-emerald-600" />
-              Identifiants de votre projet Supabase
-            </h4>
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                <Key className="w-3.5 h-3.5 text-emerald-600" />
+                Identifiants du projet Supabase
+              </h4>
+              <button
+                type="button"
+                onClick={handleResetToDefaults}
+                className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 hover:underline"
+                title="Rétablir les identifiants fournis (bwauklkozmwuunevrpah)"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Rétablir identifiants par défaut</span>
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Supabase Project ID
+              </label>
+              <input
+                type="text"
+                placeholder="bwauklkozmwuunevrpah"
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value.trim())}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+              />
+            </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -205,7 +253,7 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="https://xyzcompany.supabase.co"
+                  placeholder="https://bwauklkozmwuunevrpah.supabase.co"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   className="w-full pl-3 pr-24 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
@@ -215,7 +263,7 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 mt-1">
-                Disponible dans votre tableau de bord Supabase &gt; Project Settings &gt; API.
+                Base URL de votre projet Supabase (le chemin <code className="text-slate-700">/rest/v1/</code> est automatiquement normalisé).
               </p>
             </div>
 
@@ -231,7 +279,7 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
                 className="w-full p-3 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none resize-none"
               />
               <p className="text-[11px] text-slate-500 mt-1">
-                Clé d'API publique avec politiques Row Level Security (RLS) actives.
+                Clé API publique <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-[11px]">anon</code> avec politiques Row Level Security (RLS).
               </p>
             </div>
 
@@ -253,7 +301,22 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
                 ) : (
                   <X className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 )}
-                <span>{testResult.message}</span>
+                <div className="flex-1">
+                  <span>{testResult.message}</span>
+                  {testResult.needMigration && (
+                    <div className="mt-2 pt-2 border-t border-emerald-200 flex items-center gap-2">
+                      <a
+                        href={sqlEditorUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold text-[11px] inline-flex items-center gap-1 shadow-xs"
+                      >
+                        Ouvrir le SQL Editor Supabase <ExternalLink className="w-3 h-3" />
+                      </a>
+                      <span className="text-[11px] text-emerald-700">puis collez le script SQL ci-dessous</span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -298,14 +361,23 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
 
           {/* SQL Migration Script Section */}
           <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <Code2 className="w-4 h-4 text-emerald-400" />
                 <h4 className="font-bold text-xs text-white">
-                  Script SQL d'initialisation des tables Supabase
+                  Script SQL complet pour le projet <span className="font-mono text-emerald-300">{projectId}</span>
                 </h4>
               </div>
               <div className="flex items-center gap-2">
+                <a
+                  href={sqlEditorUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold flex items-center gap-1 border border-slate-700 transition-all"
+                >
+                  <span>SQL Editor Supabase</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
                 <button
                   type="button"
                   onClick={copySqlSchema}
@@ -335,12 +407,12 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Pour créer automatiquement toutes les tables (profil, véhicules, sorties, livraisons, stock) dans votre projet Supabase, copiez le script SQL ci-dessus et exécutez-le dans le <strong className="text-emerald-300">SQL Editor</strong> de Supabase.
+              Ce script SQL crée l'ensemble des 12 tables (véhicules, cuves, sorties gasoil, livraisons, maintenances, abonnements, comptes utilisateurs) ainsi que les politiques de sécurité Row Level Security (RLS).
             </p>
 
             {showSqlEditor && (
               <div className="relative mt-3">
-                <pre className="p-4 bg-slate-950 rounded-xl text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-48 border border-slate-800 scrollbar-thin">
+                <pre className="p-4 bg-slate-950 rounded-xl text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-56 border border-slate-800 scrollbar-thin">
                   {SUPABASE_SQL_SCHEMA}
                 </pre>
               </div>
@@ -351,12 +423,13 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
           <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
             <h5 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              Guide rapide en 3 étapes :
+              Comment finaliser l'intégration en 2 minutes :
             </h5>
             <ol className="text-xs text-slate-600 space-y-1.5 list-decimal list-inside">
-              <li>Créez un projet sur <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-emerald-600 font-semibold underline inline-flex items-center gap-0.5">supabase.com <ExternalLink className="w-3 h-3" /></a>.</li>
-              <li>Dans l'onglet <strong>SQL Editor</strong> de Supabase, collez le script SQL ci-dessus et cliquez sur <strong>Run</strong>.</li>
-              <li>Copiez votre <strong>Project URL</strong> et votre <strong>Anon Public Key</strong> dans les champs ci-dessus, puis cliquez sur <strong>Synchroniser tout vers Supabase</strong>.</li>
+              <li>Cliquez sur <strong className="text-slate-800">Copier le Script SQL</strong> ci-dessus.</li>
+              <li>Ouvrez votre projet Supabase dans le <a href={sqlEditorUrl} target="_blank" rel="noreferrer" className="text-emerald-600 font-semibold underline inline-flex items-center gap-0.5">SQL Editor de Supabase <ExternalLink className="w-3 h-3" /></a>.</li>
+              <li>Collez le script et cliquez sur le bouton vert <strong className="text-emerald-700">Run</strong>.</li>
+              <li>Revenez ici et cliquez sur <strong className="text-emerald-700">Synchroniser tout vers Supabase</strong> pour pousser toutes les données existantes.</li>
             </ol>
           </div>
         </div>
@@ -365,7 +438,7 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
         <div className="px-6 py-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Layers className="w-4 h-4 text-emerald-600" />
-            <span>Supporte le mode multi-utilisateurs & offline</span>
+            <span>Projet Supabase : <code className="font-mono font-bold text-slate-700">{projectId}</code></span>
           </div>
           <button
             onClick={onClose}

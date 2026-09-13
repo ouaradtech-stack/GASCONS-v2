@@ -18,6 +18,10 @@ export const FuelExitForm: React.FC<FuelExitFormProps> = ({ onSuccess, onCancel 
     currentStockLiters,
     addFuelExit,
     getVehicleLastReading,
+    isClientLockedOut,
+    isCurrentClientSuspended,
+    isLicenseExpired,
+    licenseExpiresAt,
   } = useGascons();
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
@@ -101,6 +105,15 @@ export const FuelExitForm: React.FC<FuelExitFormProps> = ({ onSuccess, onCancel 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+
+    if (isClientLockedOut) {
+      setErrorMsg(
+        isCurrentClientSuspended
+          ? 'Action bloquée : Le compte client est actuellement suspendu. Saisie de sorties impossible.'
+          : `Action bloquée : La période de validité de votre formule est arrivée à échéance le ${licenseExpiresAt || 'indéterminée'}. Veuillez contacter le Super Administrateur.`
+      );
+      return;
+    }
 
     if (!selectedVehicleId) {
       setErrorMsg('Veuillez sélectionner un véhicule ou un équipement.');
@@ -511,11 +524,15 @@ export const FuelExitForm: React.FC<FuelExitFormProps> = ({ onSuccess, onCancel 
         <button
           type="submit"
           id="submit-fuel-exit-btn"
-          disabled={currentStockLiters <= 0}
+          disabled={currentStockLiters <= 0 || isClientLockedOut}
           className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-sm font-bold shadow-md shadow-blue-600/20 transition-all flex items-center gap-2"
         >
           <Fuel className="w-4 h-4" />
-          <span>Enregistrer la Sortie & Générer le Bon</span>
+          <span>
+            {isClientLockedOut
+              ? 'Formule Expirée / Bloquée'
+              : 'Enregistrer la Sortie & Générer le Bon'}
+          </span>
         </button>
       </div>
     </form>

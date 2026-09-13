@@ -41,6 +41,7 @@ import {
 } from 'recharts';
 import { useGascons } from '../context/GasconsContext';
 import { FuelExit } from '../types';
+import { ClientLicenseFormulaCard } from './ClientLicenseFormulaCard';
 
 interface DashboardProps {
   onNavigate: (tab: string) => void;
@@ -124,6 +125,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectVouche
     getDepartmentById,
     vehicleMaintenances,
     companyProfile,
+    isSuperAdmin,
   } = useGascons();
 
   const [hoveredDeptIndex, setHoveredDeptIndex] = useState<number | null>(null);
@@ -280,6 +282,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onSelectVouche
 
   return (
     <div className="space-y-6" id="dashboard-main-view">
+      {/* Client Formula & License Validity Control Panel (Shown only when not Super Admin) */}
+      {!isSuperAdmin && (
+        <ClientLicenseFormulaCard onNavigate={onNavigate} />
+      )}
+
       {/* Alert Banner if stock low */}
       {isCriticalStock ? (
         <div id="banner-critical-stock" className="p-4 rounded-2xl bg-red-50 border-2 border-red-300 text-red-900 flex items-center justify-between shadow-xs">

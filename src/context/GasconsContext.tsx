@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseAuthUser } from 'firebase/auth';
 import { auth, ensureFirebaseAuth, googleProvider, testFirestoreConnection } from '../firebase';
 import {
@@ -93,6 +93,14 @@ interface GasconsContextType {
   isSuperAdmin: boolean;
   canManageUsers: boolean;
   isCurrentClientSuspended: boolean;
+  isClient: boolean;
+  clientPlanName: string;
+  licenseExpiresAt: string;
+  licenseDaysRemaining: number | null;
+  isLicenseExpired: boolean;
+  isClientLockedOut: boolean;
+  maxVehiclesQuota: number;
+  isVehicleQuotaReached: boolean;
   setCurrentUser: (user: User) => void;
   addUser: (usr: Omit<User, 'id'>) => { success: boolean; message?: string; user?: User };
   updateUser: (id: string, usr: Partial<User>) => { success: boolean; message?: string };
@@ -387,8 +395,40 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (spUsers && spUsers.length > 0) {
             setUsers(spUsers);
           }
+          const spCompany = await SupabaseService.getCompanyProfile();
+          if (spCompany && spCompany.isConfigured) {
+            setCompanyProfile(spCompany);
+          }
+          const spStock = await SupabaseService.getStockConfig();
+          if (spStock && spStock.tankCapacity > 0) {
+            setStockConfig(spStock);
+          }
+          const spVehicles = await SupabaseService.getVehicles();
+          if (spVehicles && spVehicles.length > 0) {
+            setVehicles(spVehicles);
+          }
+          const spCategories = await SupabaseService.getCategories();
+          if (spCategories && spCategories.length > 0) {
+            setCategories(spCategories);
+          }
+          const spDepts = await SupabaseService.getDepartments();
+          if (spDepts && spDepts.length > 0) {
+            setDepartments(spDepts);
+          }
+          const spSups = await SupabaseService.getSuppliers();
+          if (spSups && spSups.length > 0) {
+            setSuppliers(spSups);
+          }
+          const spSubs = await SupabaseService.getClientSubscriptions();
+          if (spSubs && spSubs.length > 0) {
+            setClientSubscriptions(spSubs);
+          }
+          const spMaints = await SupabaseService.getVehicleMaintenances();
+          if (spMaints && spMaints.length > 0) {
+            setVehicleMaintenances(spMaints);
+          }
         } catch (e) {
-          console.warn('Supabase fetch users note:', e);
+          console.warn('Supabase fetch initial data note:', e);
         }
       }
     });
@@ -616,12 +656,67 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     currentUser.email?.toLowerCase() === 'ouaradtech@gmail.com' ||
     currentUser.email?.toLowerCase().includes('ouaradtech');
 
-  // Allow administrators, super administrators, and sub-admins to manage accounts
-  const canManageUsers = isSuperAdmin || currentUser.role === 'ADMIN' || currentUser.role === 'SOUS_ADMIN' || true;
+  const isClient = !isSuperAdmin && (currentUser.role === 'SOUS_ADMIN' || Boolean(currentUser.clientCompanyName));
+
+  // Only central Super Admin and primary Admin can manage global accounts
+  const canManageUsers = isSuperAdmin || currentUser.role === 'ADMIN';
+
+  // Find linked subscription if any, or compute from currentUser
+  const clientSubscription = useMemo(() => {
+    return (
+      clientSubscriptions.find(
+        (s) =>
+          (s.userId && s.userId === currentUser.id) ||
+          (currentUser.email && s.clientEmail?.toLowerCase() === currentUser.email.toLowerCase()) ||
+          (currentUser.clientCompanyName && s.clientCompanyName?.toLowerCase() === currentUser.clientCompanyName.toLowerCase())
+      ) || null
+    );
+  }, [clientSubscriptions, currentUser]);
+
+  const licenseExpiresAt =
+    currentUser.subscriptionExpiresAt ||
+    currentUser.licenseExpiresAt ||
+    clientSubscription?.endDate ||
+    '';
+
+  const isLicenseExpired = useMemo(() => {
+    if (isSuperAdmin) return false;
+    if (!licenseExpiresAt) return false;
+    const expTime = new Date(licenseExpiresAt).getTime();
+    if (isNaN(expTime)) return false;
+    const endOfDay = new Date(licenseExpiresAt);
+    endOfDay.setHours(23, 59, 59, 999);
+    return Date.now() > endOfDay.getTime();
+  }, [isSuperAdmin, licenseExpiresAt]);
+
+  const licenseDaysRemaining = useMemo(() => {
+    if (!licenseExpiresAt) return null;
+    const expTime = new Date(licenseExpiresAt).getTime();
+    if (isNaN(expTime)) return null;
+    const diffMs = expTime - Date.now();
+    return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  }, [licenseExpiresAt]);
+
+  const clientPlanName =
+    clientSubscription?.planName ||
+    currentUser.licenseType ||
+    (currentUser.role === 'SOUS_ADMIN' ? 'Formule Client Dédiée' : 'Formule Standard');
+
+  const maxVehiclesQuota =
+    currentUser.maxVehiclesQuota ||
+    clientSubscription?.maxVehiclesQuota ||
+    (currentUser.role === 'SOUS_ADMIN' ? 20 : 9999);
+
+  const isVehicleQuotaReached =
+    !isSuperAdmin && vehicles.length >= maxVehiclesQuota;
 
   const isCurrentClientSuspended =
-    currentUser.role === 'SOUS_ADMIN' &&
+    !isSuperAdmin &&
+    (currentUser.role === 'SOUS_ADMIN' || Boolean(currentUser.clientCompanyName)) &&
     (!currentUser.active || currentUser.subscriptionStatus === 'SUSPENDU');
+
+  const isClientLockedOut =
+    !isSuperAdmin && (isCurrentClientSuspended || isLicenseExpired);
 
   // Derived stock calculations
   const totalDeliveriesLiters = fuelDeliveries.reduce((sum, d) => sum + Number(d.quantityLiters || 0), 0);
@@ -749,6 +844,14 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Vehicle Actions
   const addVehicle = (veh: Omit<Vehicle, 'id'>) => {
+    if (!isSuperAdmin && vehicles.length >= maxVehiclesQuota) {
+      console.warn('Action bloquée : quota de véhicules atteint pour cette formule.');
+      return;
+    }
+    if (isClientLockedOut) {
+      console.warn('Action bloquée : licence client expirée ou suspendue.');
+      return;
+    }
     const newVeh: Vehicle = {
       ...veh,
       id: `veh-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -1093,6 +1196,10 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const deleteUser = (id: string): boolean => {
+    const target = users.find((u) => u.id === id);
+    if (target && (target.role === 'SUPER_ADMIN' || target.email?.toLowerCase() === 'ouaradtech@gmail.com')) {
+      return false;
+    }
     if (currentUser.id === id && users.length > 1) {
       const another = users.find((u) => u.id !== id);
       if (another) setCurrentUser(another);
@@ -1275,6 +1382,11 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
 
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveVehicleMaintenance(newMaint).catch(console.warn);
+    }
+    triggerManualLocalBackup().catch(console.warn);
+
     return newMaint;
   };
 
@@ -1292,13 +1404,21 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
             updateVehicle(veh.id, { status: 'ACTIF' });
           }
         }
+        if (SupabaseService.isAvailable()) {
+          SupabaseService.saveVehicleMaintenance(merged).catch(console.warn);
+        }
         return merged;
       })
     );
+    triggerManualLocalBackup().catch(console.warn);
   };
 
   const deleteVehicleMaintenance = (id: string) => {
     setVehicleMaintenances((prev) => prev.filter((m) => m.id !== id));
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.deleteVehicleMaintenance(id).catch(console.warn);
+    }
+    triggerManualLocalBackup().catch(console.warn);
   };
 
   // Client Subscription Actions (Vente d'abonnements & Licences)
@@ -1318,6 +1438,10 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     setClientSubscriptions((prev) => [newSub, ...prev]);
+
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.saveClientSubscription(newSub).catch(console.warn);
+    }
 
     // If client account requested or user exists with same email, sync or create SOUS_ADMIN user
     if (createLinkedAccount && sub.clientEmail) {
@@ -1376,6 +1500,10 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       })
     );
 
+    if (updatedSub && SupabaseService.isAvailable()) {
+      SupabaseService.saveClientSubscription(updatedSub).catch(console.warn);
+    }
+
     // Sync updates to corresponding user if email matches
     if (updatedSub) {
       const targetSub = updatedSub;
@@ -1403,6 +1531,9 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const deleteClientSubscription = async (id: string): Promise<void> => {
     setClientSubscriptions((prev) => prev.filter((s) => s.id !== id));
+    if (SupabaseService.isAvailable()) {
+      SupabaseService.deleteClientSubscription(id).catch(console.warn);
+    }
     triggerManualLocalBackup().catch(console.warn);
   };
 
@@ -1573,6 +1704,8 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       fuelDeliveries,
       stockAdjustments,
       users,
+      vehicleMaintenances,
+      clientSubscriptions,
     });
   };
 
@@ -1644,6 +1777,14 @@ export const GasconsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isSuperAdmin,
         canManageUsers,
         isCurrentClientSuspended,
+        isClient,
+        clientPlanName,
+        licenseExpiresAt,
+        licenseDaysRemaining,
+        isLicenseExpired,
+        isClientLockedOut,
+        maxVehiclesQuota,
+        isVehicleQuotaReached,
         setCurrentUser,
         addUser,
         updateUser,

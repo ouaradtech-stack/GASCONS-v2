@@ -58,6 +58,7 @@ import { SupabaseService } from '../services/supabaseService';
 import { VehicleMaintenanceView } from './VehicleMaintenanceView';
 import { ClientSubscriptionsView } from './ClientSubscriptionsView';
 import { ImportVehiclesModal } from './ImportVehiclesModal';
+import { ClientLicenseFormulaCard } from './ClientLicenseFormulaCard';
 import {
   exportVehiclesToCSV,
   generateVehicleCSVTemplate,
@@ -97,6 +98,14 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
     isSuperAdmin,
     canManageUsers,
     isCurrentClientSuspended,
+    isClient,
+    clientPlanName,
+    licenseExpiresAt,
+    licenseDaysRemaining,
+    isLicenseExpired,
+    isClientLockedOut,
+    maxVehiclesQuota,
+    isVehicleQuotaReached,
     toggleUserStatus,
     purgeFirebaseData,
     isFirebasePurged,
@@ -198,6 +207,10 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
   const [userToSuspend, setUserToSuspend] = useState<User | null>(null);
   const [suspendReasonInput, setSuspendReasonInput] = useState('');
 
+  // Account deletion modal
+  const [isDeleteUserModalOpen, setIsDeleteUserModalOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+
   // Migration to Supabase & Firebase Purge states
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationLogs, setMigrationLogs] = useState<string[]>([]);
@@ -224,9 +237,36 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
   // 6. JSON Import
   const [importJsonText, setImportJsonText] = useState('');
 
+  // Filter users based on role: Super Admin sees everyone; Client sees only their own company's accounts
+  const visibleUsers = React.useMemo(() => {
+    if (isSuperAdmin) return users;
+    return users.filter(
+      (u) =>
+        u.id === currentUser.id ||
+        (currentUser.clientCompanyName && u.clientCompanyName === currentUser.clientCompanyName) ||
+        (currentUser.department && u.department === currentUser.department && u.role !== 'SUPER_ADMIN' && u.role !== 'SOUS_ADMIN')
+    );
+  }, [isSuperAdmin, users, currentUser]);
+
   // Open Vehicle Modal for Create / Edit
   const handleOpenVehicleModal = (v?: Vehicle) => {
     setErrorMsg('');
+    if (!v) {
+      if (!isSuperAdmin && isClientLockedOut) {
+        setErrorMsg(
+          isCurrentClientSuspended
+            ? 'Action impossible : Votre compte client est suspendu.'
+            : `Action impossible : La période de validité de votre formule/licence est arrivée à échéance le ${licenseExpiresAt || 'indéterminée'}. Contactez le Super Administrateur.`
+        );
+        return;
+      }
+      if (!isSuperAdmin && vehicles.length >= maxVehiclesQuota) {
+        setErrorMsg(
+          `Quota de véhicules atteint : Votre formule actuelle "${clientPlanName}" autorise un maximum de ${maxVehiclesQuota} véhicules (${vehicles.length}/${maxVehiclesQuota} utilisés). Veuillez contacter le Super Administrateur pour passer à une formule supérieure.`
+        );
+        return;
+      }
+    }
     if (v) {
       setEditingVehicleId(v.id);
       setVehCode(v.code);
@@ -260,6 +300,17 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
     if (!vehPlate.trim() || !vehName.trim()) {
       setErrorMsg('Veuillez remplir l immatriculation et le nom du véhicule.');
       return;
+    }
+
+    if (!editingVehicleId && !isSuperAdmin) {
+      if (isClientLockedOut) {
+        setErrorMsg('Action impossible : Licence client expirée ou suspendue.');
+        return;
+      }
+      if (vehicles.length >= maxVehiclesQuota) {
+        setErrorMsg(`Action impossible : Quota maximum de ${maxVehiclesQuota} véhicules atteint pour votre formule.`);
+        return;
+      }
     }
 
     const payload = {
@@ -335,6 +386,19 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
     if (importParsedRows.length === 0) {
       setErrorMsg('Aucun véhicule valide à importer.');
       return;
+    }
+
+    if (!isSuperAdmin) {
+      if (isClientLockedOut) {
+        setErrorMsg('Action impossible : Licence client expirée ou suspendue.');
+        return;
+      }
+      if (vehicles.length + importParsedRows.length > maxVehiclesQuota) {
+        setErrorMsg(
+          `Importation refusée : Le quota de votre formule autorise un maximum de ${maxVehiclesQuota} véhicules. Vous disposez déjà de ${vehicles.length} véhicules enregistrés.`
+        );
+        return;
+      }
     }
 
     let addedCount = 0;
@@ -566,6 +630,32 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
+  // Account deletion handlers
+  const handlePromptDeleteUser = (u: User) => {
+    if (u.role === 'SUPER_ADMIN' || u.email?.toLowerCase() === 'ouaradtech@gmail.com') {
+      setErrorMsg('Le compte Super Administrateur (Propriétaire de la plateforme) ne peut pas être supprimé.');
+      setTimeout(() => setErrorMsg(''), 4500);
+      return;
+    }
+    setUserToDelete(u);
+    setIsDeleteUserModalOpen(true);
+  };
+
+  const handleConfirmDeleteUser = () => {
+    if (!userToDelete) return;
+    const deletedName = userToDelete.name;
+    const deletedRole = userToDelete.role;
+    const success = deleteUser(userToDelete.id);
+    if (success) {
+      setSuccessMsg(`Le compte "${deletedName}" (${deletedRole}) a été définitivement supprimé.`);
+    } else {
+      setErrorMsg('Impossible de supprimer ce compte.');
+    }
+    setIsDeleteUserModalOpen(false);
+    setUserToDelete(null);
+    setTimeout(() => setSuccessMsg(''), 4500);
+  };
+
   // Migration to Supabase & Firebase Purge handlers
   const handleMigrateToSupabase = async () => {
     setIsMigrating(true);
@@ -785,7 +875,7 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
             }}
             className="bg-transparent font-bold text-slate-800 outline-hidden"
           >
-            {users.map((u) => (
+            {visibleUsers.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.name} ({u.role})
               </option>
@@ -793,6 +883,11 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
           </select>
         </div>
       </div>
+
+      {/* Client Formula & License Card (For Clients / Sous-Admins) */}
+      {!isSuperAdmin && (
+        <ClientLicenseFormulaCard />
+      )}
 
       {/* Success Notification */}
       {successMsg && (
@@ -813,7 +908,7 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
           }`}
         >
           <Truck className="w-4 h-4" />
-          Véhicules & Engins ({vehicles.length})
+          Véhicules & Engins ({vehicles.length}{!isSuperAdmin && ` / ${maxVehiclesQuota}`})
         </button>
 
         <button
@@ -849,7 +944,7 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
           }`}
         >
           <Users className="w-4 h-4" />
-          Comptes & Sous-Admins ({users.length})
+          {isSuperAdmin ? `Comptes & Sous-Admins (${users.length})` : `Mon Équipe & Profil (${visibleUsers.length})`}
         </button>
 
         {isSuperAdmin && (
@@ -1241,62 +1336,68 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                Tous ({users.length})
+                {isSuperAdmin ? `Tous (${users.length})` : `Mon Équipe & Profil (${visibleUsers.length})`}
               </button>
-              <button
-                type="button"
-                onClick={() => setUserFilterTab('sous_admin')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  userFilterTab === 'sous_admin'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
-                }`}
-              >
-                <Award className="w-3.5 h-3.5" />
-                <span>Clients Sous-Admins ({users.filter((u) => u.role === 'SOUS_ADMIN').length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setUserFilterTab('team')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                  userFilterTab === 'team'
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                Équipe Interne ({users.filter((u) => u.role !== 'SOUS_ADMIN').length})
-              </button>
-            </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {canManageUsers && (
+              {isSuperAdmin && (
                 <>
                   <button
                     type="button"
-                    onClick={() => handleOpenUserModal(undefined, 'SOUS_ADMIN')}
-                    className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                    onClick={() => setUserFilterTab('sous_admin')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      userFilterTab === 'sous_admin'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                    }`}
                   >
                     <Award className="w-3.5 h-3.5" />
-                    <span>+ Nouveau Sous-Admin (Client)</span>
+                    <span>Clients Sous-Admins ({users.filter((u) => u.role === 'SOUS_ADMIN').length})</span>
                   </button>
-
                   <button
                     type="button"
-                    onClick={() => handleOpenUserModal(undefined, 'POMPISTE')}
-                    className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                    onClick={() => setUserFilterTab('team')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      userFilterTab === 'team'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>+ Nouveau Compte Interne</span>
+                    Équipe Interne ({users.filter((u) => u.role !== 'SOUS_ADMIN').length})
                   </button>
                 </>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {isSuperAdmin && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenUserModal(undefined, 'SOUS_ADMIN')}
+                  className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  <span>+ Nouveau Sous-Admin (Client)</span>
+                </button>
+              )}
+
+              {canManageUsers && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenUserModal(undefined, 'POMPISTE')}
+                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Nouveau Compte Opérateur</span>
+                </button>
               )}
             </div>
           </div>
 
           {/* Users Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {users
+            {(isSuperAdmin ? users : visibleUsers)
               .filter((u) => {
+                if (!isSuperAdmin) return true;
                 if (userFilterTab === 'sous_admin') return u.role === 'SOUS_ADMIN';
                 if (userFilterTab === 'team') return u.role !== 'SOUS_ADMIN';
                 return true;
@@ -1453,28 +1554,26 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
                           {isCurrent ? '✓ Connecté Actuellement' : 'Basculer vers ce compte'}
                         </button>
 
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
                           {(canManageUsers || isCurrent) && (
                             <button
                               onClick={() => handleOpenUserModal(u)}
-                              title="Modifier utilisateur, quota ou licence"
-                              className="p-1.5 text-slate-500 hover:text-blue-600 rounded-lg hover:bg-slate-100"
+                              title="Modifier ce compte"
+                              className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
                           )}
 
-                          {canManageUsers && users.length > 1 && !isCurrent && !isSuper && (
+                          {canManageUsers && !isSuper && (
                             <button
-                              onClick={() => {
-                                if (window.confirm(`Supprimer définitivement le compte ${u.name} ?`)) {
-                                  deleteUser(u.id);
-                                }
-                              }}
-                              title="Supprimer l utilisateur"
-                              className="p-1.5 text-slate-500 hover:text-red-600 rounded-lg hover:bg-slate-100"
+                              type="button"
+                              onClick={() => handlePromptDeleteUser(u)}
+                              title={`Supprimer définitivement le compte de ${u.name}`}
+                              className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Supprimer</span>
                             </button>
                           )}
                         </div>
@@ -2387,12 +2486,15 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
                     value={userRole}
                     onChange={(e) => setUserRole(e.target.value as UserRole)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold text-xs"
+                    disabled={!isSuperAdmin && editingUserId === currentUser.id}
                   >
                     {isSuperAdmin && (
-                      <option value="SUPER_ADMIN">👑 SUPER_ADMIN (Master OuaradTech)</option>
+                      <>
+                        <option value="SUPER_ADMIN">👑 SUPER_ADMIN (Master OuaradTech)</option>
+                        <option value="SOUS_ADMIN">⭐ SOUS_ADMIN (Client Vente & Quota)</option>
+                        <option value="ADMIN">ADMIN (Accès Total Entreprise)</option>
+                      </>
                     )}
-                    <option value="SOUS_ADMIN">⭐ SOUS_ADMIN (Client Vente & Quota)</option>
-                    <option value="ADMIN">ADMIN (Accès Total Entreprise)</option>
                     <option value="GESTIONNAIRE">GESTIONNAIRE (Stock & BL)</option>
                     <option value="POMPISTE">POMPISTE (Saisie Sorties)</option>
                     <option value="SUPERVISEUR">SUPERVISEUR (Consultation)</option>
@@ -2413,11 +2515,18 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
               {/* Sous-Admin Licensing Configuration Block */}
               {userRole === 'SOUS_ADMIN' && (
                 <div className="p-3.5 bg-gradient-to-br from-amber-50/70 via-slate-50 to-amber-50/30 rounded-xl border border-amber-200/90 space-y-3">
-                  <div className="flex items-center gap-2 border-b border-amber-200/60 pb-2">
-                    <Award className="w-4 h-4 text-amber-600" />
-                    <span className="font-bold text-slate-900 text-xs">
-                      Paramètres de Licence Client (Sous-Admin)
-                    </span>
+                  <div className="flex items-center justify-between border-b border-amber-200/60 pb-2">
+                    <div className="flex items-center gap-2">
+                      <Award className="w-4 h-4 text-amber-600" />
+                      <span className="font-bold text-slate-900 text-xs">
+                        Conditions de la Formule & Licence Client
+                      </span>
+                    </div>
+                    {!isSuperAdmin && (
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                        Géré par Super-Admin
+                      </span>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -2428,8 +2537,9 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
                         value={userClientCompanyName}
                         onChange={(e) => setUserClientCompanyName(e.target.value)}
                         required={userRole === 'SOUS_ADMIN'}
+                        disabled={!isSuperAdmin}
                         placeholder="ex: Société BTP Sahara"
-                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-medium"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-medium disabled:bg-slate-100 disabled:text-slate-600"
                       />
                     </div>
                     <div>
@@ -2437,7 +2547,8 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
                       <select
                         value={userLicenseType}
                         onChange={(e) => setUserLicenseType(e.target.value as any)}
-                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold"
+                        disabled={!isSuperAdmin}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold disabled:bg-slate-100 disabled:text-slate-600"
                       >
                         <option value="STARTER">STARTER (10 véhicules max)</option>
                         <option value="BUSINESS">BUSINESS (30 véhicules max)</option>
@@ -2456,15 +2567,17 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
                         max="1000"
                         value={userMaxVehicles}
                         onChange={(e) => setUserMaxVehicles(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold"
+                        disabled={!isSuperAdmin}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold disabled:bg-slate-100 disabled:text-slate-600"
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Statut Initial Souscription</label>
+                      <label className="block font-semibold text-slate-700 mb-1">Statut Souscription</label>
                       <select
                         value={userSubscriptionStatus}
                         onChange={(e) => setUserSubscriptionStatus(e.target.value as any)}
-                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold"
+                        disabled={!isSuperAdmin}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold disabled:bg-slate-100 disabled:text-slate-600"
                       >
                         <option value="ACTIF">✓ ACTIF (Accès Ouvert)</option>
                         <option value="SUSPENDU">⛔ SUSPENDU (Accès Coupé)</option>
@@ -2531,17 +2644,40 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
                 </p>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsUserModalOpen(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-xl"
-                >
-                  Annuler
-                </button>
-                <button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs">
-                  {editingUserId ? 'Mettre à jour' : 'Créer l Utilisateur'}
-                </button>
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100">
+                {editingUserId && canManageUsers && (() => {
+                  const target = users.find((u) => u.id === editingUserId);
+                  const isTargetSuper = target?.role === 'SUPER_ADMIN' || target?.email?.toLowerCase() === 'ouaradtech@gmail.com';
+                  if (isTargetSuper) return <div />;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (target) {
+                          setIsUserModalOpen(false);
+                          handlePromptDeleteUser(target);
+                        }
+                      }}
+                      className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Supprimer ce compte</span>
+                    </button>
+                  );
+                })()}
+
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setIsUserModalOpen(false)}
+                    className="px-4 py-2 border border-slate-300 hover:bg-slate-50 rounded-xl font-semibold cursor-pointer"
+                  >
+                    Annuler
+                  </button>
+                  <button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs cursor-pointer">
+                    {editingUserId ? 'Mettre à jour' : 'Créer l Utilisateur'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -2610,6 +2746,92 @@ export const AdminDataView: React.FC<AdminDataViewProps> = ({ initialTab }) => {
                 className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs transition-colors"
               >
                 Confirmer la Suspension
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent Account Deletion Confirmation Modal */}
+      {isDeleteUserModalOpen && userToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl border border-rose-200 max-w-md w-full p-6 space-y-4 text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-rose-600 font-bold text-sm">
+                <Trash2 className="w-4 h-4 text-rose-600" />
+                <span>Suppression Définitive de Compte</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDeleteUserModalOpen(false);
+                  setUserToDelete(null);
+                }}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <p className="font-bold text-xs text-rose-950">
+                  Confirmation de suppression définitive
+                </p>
+              </div>
+              <p className="text-[11px] text-rose-800 leading-relaxed">
+                Voulez-vous vraiment supprimer définitivement le compte de{' '}
+                <strong className="text-rose-950 font-bold">{userToDelete.name}</strong> ?
+              </p>
+              <p className="text-[10px] text-rose-600">
+                ⚠️ Cette action est irréversible. L utilisateur ne pourra plus se connecter et ses identifiants seront supprimés.
+              </p>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 text-slate-600 text-[11px]">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-slate-500">Identifiant / E-mail :</span>
+                <span className="font-mono font-bold text-slate-800">{userToDelete.email}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-slate-500">Rôle :</span>
+                <span className="font-bold px-2 py-0.5 rounded text-[10px] bg-slate-200 text-slate-800">
+                  {userToDelete.role}
+                </span>
+              </div>
+              {userToDelete.clientCompanyName && (
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-slate-500">Entreprise Cliente :</span>
+                  <span className="font-bold text-amber-900">{userToDelete.clientCompanyName}</span>
+                </div>
+              )}
+              {userToDelete.department && (
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-slate-500">Département :</span>
+                  <span className="text-slate-700">{userToDelete.department}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDeleteUserModalOpen(false);
+                  setUserToDelete(null);
+                }}
+                className="px-4 py-2 border border-slate-300 hover:bg-slate-50 rounded-xl font-semibold text-slate-700 cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteUser}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Oui, Supprimer le Compte</span>
               </button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { getSupabaseClient } from '../supabase';
 import {
+  ClientSubscription,
   CompanyProfile,
   Department,
   FuelDelivery,
@@ -10,6 +11,7 @@ import {
   User,
   Vehicle,
   VehicleCategory,
+  VehicleMaintenance,
 } from '../types';
 
 export const SupabaseService = {
@@ -146,10 +148,10 @@ export const SupabaseService = {
       return data.map((d) => ({
         id: d.id,
         name: d.name,
-        unitType: d.unit_type,
-        defaultTargetRate: d.default_target_rate,
+        unitType: d.unit_type || 'KM',
+        defaultTargetRate: d.default_target_rate || 25,
         description: d.description || undefined,
-        color: d.color,
+        color: d.color || '#2563eb',
       }));
     } catch (err) {
       console.error('Supabase getCategories exception:', err);
@@ -165,11 +167,10 @@ export const SupabaseService = {
         id: cat.id,
         name: cat.name,
         unit_type: cat.unitType,
-        default_target_rate: cat.defaultTargetRate,
         description: cat.description || null,
         color: cat.color,
       };
-      const { error } = await client.from('vehicle_categories').upsert(payload);
+      const { error } = await client.from('vehicle_categories').upsert(payload, { onConflict: 'id' });
       return !error;
     } catch (err) {
       console.error('Supabase saveCategory exception:', err);
@@ -200,14 +201,14 @@ export const SupabaseService = {
         id: d.id,
         code: d.code,
         plateNumber: d.plate_number,
-        name: d.name,
+        name: d.designation || d.name || '',
         categoryId: d.category_id,
         departmentId: d.department_id,
-        tankCapacity: d.tank_capacity,
-        currentReading: d.current_reading,
-        unitType: d.unit_type,
+        tankCapacity: Number(d.tank_capacity) || 80,
+        currentReading: Number(d.current_reading) || 0,
+        unitType: d.unit_type || 'KM',
         assignedDriver: d.assigned_driver || undefined,
-        status: d.status,
+        status: d.status || 'ACTIF',
         notes: d.notes || undefined,
       }));
     } catch (err) {
@@ -224,17 +225,16 @@ export const SupabaseService = {
         id: veh.id,
         code: veh.code,
         plate_number: veh.plateNumber,
-        name: veh.name,
+        designation: veh.name,
         category_id: veh.categoryId,
         department_id: veh.departmentId,
         tank_capacity: veh.tankCapacity,
         current_reading: veh.currentReading,
         unit_type: veh.unitType,
-        assigned_driver: veh.assignedDriver || null,
         status: veh.status,
         notes: veh.notes || null,
       };
-      const { error } = await client.from('vehicles').upsert(payload);
+      const { error } = await client.from('vehicles').upsert(payload, { onConflict: 'id' });
       return !error;
     } catch (err) {
       console.error('Supabase saveVehicle exception:', err);
@@ -264,7 +264,7 @@ export const SupabaseService = {
       return data.map((d) => ({
         id: d.id,
         name: d.name,
-        manager: d.manager,
+        manager: d.manager_name || d.manager || undefined,
         code: d.code,
       }));
     } catch (err) {
@@ -280,10 +280,10 @@ export const SupabaseService = {
       const payload = {
         id: dept.id,
         name: dept.name,
-        manager: dept.manager,
-        code: dept.code,
+        manager_name: dept.manager || null,
+        code: dept.code || null,
       };
-      const { error } = await client.from('departments').upsert(payload);
+      const { error } = await client.from('departments').upsert(payload, { onConflict: 'id' });
       return !error;
     } catch (err) {
       console.error('Supabase saveDepartment exception:', err);
@@ -313,11 +313,11 @@ export const SupabaseService = {
       return data.map((d) => ({
         id: d.id,
         name: d.name,
-        contactName: d.contact_name,
+        contactName: d.contact_person || d.contact_name || undefined,
         phone: d.phone,
         email: d.email || undefined,
         address: d.address || undefined,
-        pricePerLiter: d.price_per_liter,
+        pricePerLiter: Number(d.price_per_liter) || 12.5,
       }));
     } catch (err) {
       console.error('Supabase getSuppliers exception:', err);
@@ -332,13 +332,12 @@ export const SupabaseService = {
       const payload = {
         id: sup.id,
         name: sup.name,
-        contact_name: sup.contactName,
+        contact_person: sup.contactName || null,
         phone: sup.phone,
         email: sup.email || null,
         address: sup.address || null,
-        price_per_liter: sup.pricePerLiter,
       };
-      const { error } = await client.from('suppliers').upsert(payload);
+      const { error } = await client.from('suppliers').upsert(payload, { onConflict: 'id' });
       return !error;
     } catch (err) {
       console.error('Supabase saveSupplier exception:', err);
@@ -622,6 +621,155 @@ export const SupabaseService = {
     }
   },
 
+  // 11. Vehicle Maintenances
+  async getVehicleMaintenances(): Promise<VehicleMaintenance[]> {
+    const client = getSupabaseClient();
+    if (!client) return [];
+    try {
+      const { data, error } = await client.from('vehicle_maintenances').select('*').order('date', { ascending: false });
+      if (error || !data) return [];
+      return data.map((m: any) => ({
+        id: m.id,
+        maintenanceNumber: m.maintenance_number,
+        vehicleId: m.vehicle_id,
+        serviceType: (m.type || 'VIDANGE') as any,
+        title: m.description || 'Entretien',
+        date: m.date,
+        currentReading: Number(m.current_reading) || 0,
+        cost: Number(m.cost) || 0,
+        provider: m.provider_name || '',
+        invoiceNumber: m.invoice_number || '',
+        nextDueReading: m.next_reading_due ? Number(m.next_reading_due) : undefined,
+        nextDueDate: m.next_date_due || undefined,
+        status: (m.status || 'TERMINE') as any,
+        technicianName: m.performed_by || '',
+        notes: m.notes || '',
+        createdAt: m.created_at || new Date().toISOString(),
+      }));
+    } catch (err) {
+      console.error('Supabase getVehicleMaintenances exception:', err);
+      return [];
+    }
+  },
+
+  async saveVehicleMaintenance(maint: VehicleMaintenance): Promise<boolean> {
+    const client = getSupabaseClient();
+    if (!client) return false;
+    try {
+      const payload = {
+        id: maint.id,
+        maintenance_number: maint.maintenanceNumber,
+        vehicle_id: maint.vehicleId,
+        date: maint.date,
+        current_reading: maint.currentReading,
+        unit_type: 'KM',
+        type: maint.serviceType,
+        description: maint.title,
+        provider_name: maint.provider,
+        cost: maint.cost,
+        invoice_number: maint.invoiceNumber || null,
+        next_reading_due: maint.nextDueReading || null,
+        next_date_due: maint.nextDueDate || null,
+        status: maint.status,
+        performed_by: maint.technicianName || null,
+        notes: maint.notes || null,
+        created_at: maint.createdAt || new Date().toISOString(),
+      };
+      const { error } = await client.from('vehicle_maintenances').upsert([payload], { onConflict: 'id' });
+      return !error;
+    } catch (err) {
+      console.error('Supabase saveVehicleMaintenance exception:', err);
+      return false;
+    }
+  },
+
+  async deleteVehicleMaintenance(id: string): Promise<boolean> {
+    const client = getSupabaseClient();
+    if (!client) return false;
+    try {
+      const { error } = await client.from('vehicle_maintenances').delete().eq('id', id);
+      return !error;
+    } catch (err) {
+      console.error('Supabase deleteVehicleMaintenance exception:', err);
+      return false;
+    }
+  },
+
+  // 12. Client Subscriptions (OuaradTech Licences)
+  async getClientSubscriptions(): Promise<ClientSubscription[]> {
+    const client = getSupabaseClient();
+    if (!client) return [];
+    try {
+      const { data, error } = await client.from('client_subscriptions').select('*').order('created_at', { ascending: false });
+      if (error || !data) return [];
+      return data.map((s: any) => ({
+        id: s.id,
+        contractNumber: s.contract_number,
+        clientCompanyName: s.client_company_name,
+        clientContactName: s.client_contact_name || '',
+        clientEmail: s.client_email || '',
+        clientPhone: s.client_phone || '',
+        planType: s.plan_type || 'MENSUEL',
+        planName: s.plan_name || 'Formule Standard',
+        maxVehiclesQuota: s.max_vehicles_quota || 50,
+        priceDHS: Number(s.price_dhs) || 0,
+        paymentMethod: s.payment_method || 'VIREMENT',
+        startDate: s.start_date,
+        endDate: s.end_date,
+        status: (s.status || 'ACTIF') as any,
+        isPaid: s.status === 'ACTIF',
+        notes: s.notes || '',
+        createdAt: s.created_at || new Date().toISOString(),
+      }));
+    } catch (err) {
+      console.error('Supabase getClientSubscriptions exception:', err);
+      return [];
+    }
+  },
+
+  async saveClientSubscription(sub: ClientSubscription): Promise<boolean> {
+    const client = getSupabaseClient();
+    if (!client) return false;
+    try {
+      const payload = {
+        id: sub.id,
+        contract_number: sub.contractNumber,
+        client_company_name: sub.clientCompanyName,
+        client_contact_name: sub.clientContactName || null,
+        client_email: sub.clientEmail || null,
+        client_phone: sub.clientPhone || null,
+        plan_type: sub.planType,
+        plan_name: sub.planName,
+        max_vehicles_quota: sub.maxVehiclesQuota,
+        price_dhs: sub.priceDHS,
+        payment_method: sub.paymentMethod,
+        start_date: sub.startDate,
+        end_date: sub.endDate,
+        status: sub.status,
+        invoice_number: sub.paymentReference || null,
+        notes: sub.notes || null,
+        created_at: sub.createdAt || new Date().toISOString(),
+      };
+      const { error } = await client.from('client_subscriptions').upsert([payload], { onConflict: 'id' });
+      return !error;
+    } catch (err) {
+      console.error('Supabase saveClientSubscription exception:', err);
+      return false;
+    }
+  },
+
+  async deleteClientSubscription(id: string): Promise<boolean> {
+    const client = getSupabaseClient();
+    if (!client) return false;
+    try {
+      const { error } = await client.from('client_subscriptions').delete().eq('id', id);
+      return !error;
+    } catch (err) {
+      console.error('Supabase deleteClientSubscription exception:', err);
+      return false;
+    }
+  },
+
   // Push all local data into Supabase (Initial Migration / Sync)
   async syncAllToSupabase(allData: {
     companyProfile: CompanyProfile;
@@ -634,6 +782,8 @@ export const SupabaseService = {
     fuelDeliveries: FuelDelivery[];
     stockAdjustments: StockAdjustment[];
     users: User[];
+    vehicleMaintenances?: VehicleMaintenance[];
+    clientSubscriptions?: ClientSubscription[];
   }): Promise<{ success: boolean; count: number; error?: string }> {
     const client = getSupabaseClient();
     if (!client) {
@@ -668,6 +818,16 @@ export const SupabaseService = {
       for (const usr of allData.users) {
         await this.saveUser(usr);
       }
+      if (allData.vehicleMaintenances) {
+        for (const maint of allData.vehicleMaintenances) {
+          await this.saveVehicleMaintenance(maint);
+        }
+      }
+      if (allData.clientSubscriptions) {
+        for (const sub of allData.clientSubscriptions) {
+          await this.saveClientSubscription(sub);
+        }
+      }
 
       const totalItems =
         allData.categories.length +
@@ -678,6 +838,8 @@ export const SupabaseService = {
         allData.fuelDeliveries.length +
         allData.stockAdjustments.length +
         allData.users.length +
+        (allData.vehicleMaintenances?.length || 0) +
+        (allData.clientSubscriptions?.length || 0) +
         2;
 
       return { success: true, count: totalItems };

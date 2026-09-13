@@ -2,35 +2,84 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const STORAGE_KEY_SUPABASE_URL = 'gascons_supabase_url';
 const STORAGE_KEY_SUPABASE_KEY = 'gascons_supabase_anon_key';
+const STORAGE_KEY_SUPABASE_PROJECT_ID = 'gascons_supabase_project_id';
 
-// Retrieve configuration from env variables or localStorage
+// Default project configuration provided by user
+export const DEFAULT_SUPABASE_CONFIG = {
+  projectId: 'bwauklkozmwuunevrpah',
+  url: 'https://bwauklkozmwuunevrpah.supabase.co',
+  anonKey:
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3YXVrbGtvem13dXVuZXZycGFoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyMDI1MzUsImV4cCI6MjEwMzc3ODUzNX0.s--SX8EEYczgCNEHQeaU9p6PK1cba_7amIhAqc13ouw',
+};
+
+/**
+ * Normalizes Supabase Project URL by removing any trailing slashes or /rest/v1 paths
+ * which causes the Supabase JS SDK client to fail.
+ */
+export function normalizeSupabaseUrl(rawUrl: string): string {
+  if (!rawUrl) return '';
+  let url = rawUrl.trim();
+  // Strip /rest/v1 or /rest/v1/ if user accidentally copied the REST endpoint
+  url = url.replace(/\/rest\/v1\/?$/i, '');
+  // Strip trailing slashes
+  url = url.replace(/\/+$/, '');
+  return url;
+}
+
+// Retrieve configuration from env variables, localStorage, or pre-configured defaults
 export function getStoredSupabaseConfig() {
-  const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-  const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
+  const envUrl = normalizeSupabaseUrl((import.meta as any).env?.VITE_SUPABASE_URL || '');
+  const envKey = ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '').trim();
+  const envProjectId = ((import.meta as any).env?.VITE_SUPABASE_PROJECT_ID || '').trim();
 
-  const storedUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_SUPABASE_URL) || '' : '';
-  const storedKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_SUPABASE_KEY) || '' : '';
+  const storedUrl =
+    typeof window !== 'undefined'
+      ? normalizeSupabaseUrl(localStorage.getItem(STORAGE_KEY_SUPABASE_URL) || '')
+      : '';
+  const storedKey =
+    typeof window !== 'undefined'
+      ? (localStorage.getItem(STORAGE_KEY_SUPABASE_KEY) || '').trim()
+      : '';
+  const storedProjectId =
+    typeof window !== 'undefined'
+      ? (localStorage.getItem(STORAGE_KEY_SUPABASE_PROJECT_ID) || '').trim()
+      : '';
+
+  const effectiveUrl = storedUrl || envUrl || DEFAULT_SUPABASE_CONFIG.url;
+  const effectiveKey = storedKey || envKey || DEFAULT_SUPABASE_CONFIG.anonKey;
+  const effectiveProjectId =
+    storedProjectId || envProjectId || DEFAULT_SUPABASE_CONFIG.projectId;
 
   return {
-    url: storedUrl || envUrl || '',
-    anonKey: storedKey || envKey || '',
-    isConfigured: !!((storedUrl || envUrl) && (storedKey || envKey)),
+    projectId: effectiveProjectId,
+    url: effectiveUrl,
+    anonKey: effectiveKey,
+    isConfigured: !!(effectiveUrl && effectiveKey),
   };
 }
 
-export function saveSupabaseConfig(url: string, anonKey: string) {
+export function saveSupabaseConfig(url: string, anonKey: string, projectId?: string) {
   if (typeof window !== 'undefined') {
-    if (url) {
-      localStorage.setItem(STORAGE_KEY_SUPABASE_URL, url.trim());
+    const cleanUrl = normalizeSupabaseUrl(url);
+    const cleanKey = anonKey.trim();
+
+    if (cleanUrl) {
+      localStorage.setItem(STORAGE_KEY_SUPABASE_URL, cleanUrl);
     } else {
       localStorage.removeItem(STORAGE_KEY_SUPABASE_URL);
     }
-    if (anonKey) {
-      localStorage.setItem(STORAGE_KEY_SUPABASE_KEY, anonKey.trim());
+
+    if (cleanKey) {
+      localStorage.setItem(STORAGE_KEY_SUPABASE_KEY, cleanKey);
     } else {
       localStorage.removeItem(STORAGE_KEY_SUPABASE_KEY);
     }
-    // Re-initialize client
+
+    if (projectId && projectId.trim()) {
+      localStorage.setItem(STORAGE_KEY_SUPABASE_PROJECT_ID, projectId.trim());
+    }
+
+    // Re-initialize client singleton
     supabaseInstance = null;
   }
 }
@@ -48,7 +97,8 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 
   try {
-    supabaseInstance = createClient(url, anonKey, {
+    const cleanUrl = normalizeSupabaseUrl(url);
+    supabaseInstance = createClient(cleanUrl, anonKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
@@ -56,7 +106,7 @@ export function getSupabaseClient(): SupabaseClient | null {
     });
     return supabaseInstance;
   } catch (error) {
-    console.error('Erreur lors de l\'initialisation du client Supabase:', error);
+    console.error("Erreur lors de l'initialisation du client Supabase:", error);
     return null;
   }
 }
@@ -65,36 +115,45 @@ export async function testSupabaseConnection(): Promise<{
   connected: boolean;
   message: string;
   tables?: string[];
+  needMigration?: boolean;
 }> {
   const client = getSupabaseClient();
   if (!client) {
     return {
       connected: false,
-      message: 'Supabase n\'est pas encore configuré (URL ou clé Anon manquante).',
+      message: "Supabase n'est pas encore configuré (URL ou clé Anon manquante).",
     };
   }
 
   try {
-    // Try to query or check connection
-    const { data, error } = await client.from('company_profiles').select('count', { count: 'exact', head: true });
-    
+    // Try to query schema or test connection
+    const { error } = await client.from('company_profiles').select('count', { count: 'exact', head: true });
+
     if (error) {
-      // If table doesn't exist yet, it means connection works but tables need migration
-      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+      // If table doesn't exist yet, it means authentication and network to Supabase work 100%!
+      if (
+        error.code === '42P01' ||
+        error.code === 'PGRST205' ||
+        error.message?.includes('does not exist') ||
+        error.message?.includes('schema cache')
+      ) {
         return {
           connected: true,
-          message: 'Connecté à Supabase avec succès ! Les tables doivent être créées via le script SQL fourni.',
+          needMigration: true,
+          message:
+            'Projet Supabase connecté et joignable avec succès ! Les tables doivent être créées en exécutant le script SQL fourni dans le SQL Editor.',
         };
       }
       return {
         connected: false,
-        message: `Erreur Supabase: ${error.message}`,
+        message: `Erreur de connexion Supabase: ${error.message} (${error.code || 'Inconnu'})`,
       };
     }
 
     return {
       connected: true,
-      message: 'Connecté à Supabase & synchronisation opérationnelle !',
+      needMigration: false,
+      message: 'Projet Supabase connecté et tables opérationnelles pour la synchronisation !',
     };
   } catch (error: any) {
     return {
@@ -107,6 +166,7 @@ export async function testSupabaseConnection(): Promise<{
 // SQL Schema for users to run in Supabase SQL Editor
 export const SUPABASE_SQL_SCHEMA = `-- ==========================================================
 -- GASCONS : Script d'initialisation complet pour SUPABASE
+-- Projet ID: bwauklkozmwuunevrpah
 -- À coller et exécuter dans l'éditeur SQL de votre projet Supabase
 -- ==========================================================
 
@@ -266,7 +326,49 @@ CREATE TABLE IF NOT EXISTS public.users (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Migration automatique des colonnes si la table existe déjà
+-- 11. Table Entretiens & Maintenances Véhicules
+CREATE TABLE IF NOT EXISTS public.vehicle_maintenances (
+  id TEXT PRIMARY KEY,
+  maintenance_number TEXT NOT NULL,
+  vehicle_id TEXT REFERENCES public.vehicles(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  current_reading DOUBLE PRECISION NOT NULL DEFAULT 0,
+  unit_type TEXT NOT NULL DEFAULT 'KM',
+  type TEXT NOT NULL DEFAULT 'VIDANGE',
+  description TEXT,
+  provider_name TEXT,
+  cost DOUBLE PRECISION NOT NULL DEFAULT 0,
+  invoice_number TEXT,
+  next_reading_due DOUBLE PRECISION,
+  next_date_due TEXT,
+  status TEXT NOT NULL DEFAULT 'TERMINE',
+  performed_by TEXT,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 12. Table Abonnements Clients & Licences (Gestion OuaradTech)
+CREATE TABLE IF NOT EXISTS public.client_subscriptions (
+  id TEXT PRIMARY KEY,
+  contract_number TEXT NOT NULL,
+  client_company_name TEXT NOT NULL,
+  client_contact_name TEXT,
+  client_email TEXT,
+  client_phone TEXT,
+  plan_type TEXT NOT NULL DEFAULT 'MENSUEL',
+  plan_name TEXT NOT NULL DEFAULT 'Formule Standard',
+  max_vehicles_quota INTEGER NOT NULL DEFAULT 50,
+  price_dhs DOUBLE PRECISION NOT NULL DEFAULT 0,
+  payment_method TEXT DEFAULT 'VIREMENT',
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ACTIF',
+  invoice_number TEXT,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Migration automatique des colonnes si les tables existent déjà
 DO $$ 
 BEGIN
   ALTER TABLE public.users ADD COLUMN IF NOT EXISTS client_company_name TEXT;
@@ -280,7 +382,7 @@ BEGIN
   ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notes TEXT;
 END $$;
 
--- Activer Row Level Security (RLS) & Politiques d'accès public/authentifié
+-- Activer Row Level Security (RLS)
 ALTER TABLE public.company_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stock_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vehicle_categories ENABLE ROW LEVEL SECURITY;
@@ -291,8 +393,10 @@ ALTER TABLE public.fuel_exits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fuel_deliveries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stock_adjustments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vehicle_maintenances ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.client_subscriptions ENABLE ROW LEVEL SECURITY;
 
--- Politiques RLS permissives pour l'application Gascons
+-- Politiques RLS d'accès public/authentifié pour l'application Gascons
 DO $$ 
 BEGIN
   DROP POLICY IF EXISTS "Allow public read-write for company_profiles" ON public.company_profiles;
@@ -305,6 +409,8 @@ BEGIN
   DROP POLICY IF EXISTS "Allow public read-write for fuel_deliveries" ON public.fuel_deliveries;
   DROP POLICY IF EXISTS "Allow public read-write for stock_adjustments" ON public.stock_adjustments;
   DROP POLICY IF EXISTS "Allow public read-write for users" ON public.users;
+  DROP POLICY IF EXISTS "Allow public read-write for vehicle_maintenances" ON public.vehicle_maintenances;
+  DROP POLICY IF EXISTS "Allow public read-write for client_subscriptions" ON public.client_subscriptions;
 
   CREATE POLICY "Allow public read-write for company_profiles" ON public.company_profiles FOR ALL USING (true) WITH CHECK (true);
   CREATE POLICY "Allow public read-write for stock_configs" ON public.stock_configs FOR ALL USING (true) WITH CHECK (true);
@@ -316,5 +422,7 @@ BEGIN
   CREATE POLICY "Allow public read-write for fuel_deliveries" ON public.fuel_deliveries FOR ALL USING (true) WITH CHECK (true);
   CREATE POLICY "Allow public read-write for stock_adjustments" ON public.stock_adjustments FOR ALL USING (true) WITH CHECK (true);
   CREATE POLICY "Allow public read-write for users" ON public.users FOR ALL USING (true) WITH CHECK (true);
+  CREATE POLICY "Allow public read-write for vehicle_maintenances" ON public.vehicle_maintenances FOR ALL USING (true) WITH CHECK (true);
+  CREATE POLICY "Allow public read-write for client_subscriptions" ON public.client_subscriptions FOR ALL USING (true) WITH CHECK (true);
 END $$;
 `;
